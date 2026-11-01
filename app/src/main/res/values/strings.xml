@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">いろどり</string>
+    <string name="w_today">いろどり きょう</string>
+    <string name="w_week">いろどり 週</string>
+    <string name="w_month">いろどり 月</string>
+    <string name="w_list">いろどり 買い物・ToDo</string>
+    <string name="w_today_desc">天気・きょうの予定・アドバイス・キャラ</string>
+    <string name="w_week_desc">1週間の全員の予定</string>
+    <string name="w_month_desc">1か月の全員の予定</string>
+    <string name="w_list_desc">お買い物チェックリストとToDo</string>
+</resources>

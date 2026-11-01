@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.Irodori" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#F7F3EE</item>
+        <item name="android:statusBarColor">#F7F3EE</item>
+        <item name="android:navigationBarColor">#F7F3EE</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>
