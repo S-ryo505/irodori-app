@@ -29,6 +29,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.composed
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,9 +56,13 @@ fun moveCursor(mode: String, cursor: String, dir: Int): String = when (mode) {
 private fun fs(q: Q): TextUnit = listOf(9f, 10.5f, 12f)[q.s.textSize.coerceIn(0, 2)].sp
 
 /** 左右スワイプで前後に移動 */
-fun Modifier.swipe(onDir: (Int) -> Unit): Modifier = this.pointerInput(Unit) {
-    var total = 0f
-    detectHorizontalDragGestures(onDragStart = { total = 0f }, onDragEnd = { if (total < -120) onDir(1) else if (total > 120) onDir(-1) }) { _, d -> total += d }
+/* 最新の表示月を使うよう rememberUpdatedState で毎回更新(以前は最初の月のまま→10月/12月から先に進まない不具合) */
+fun Modifier.swipe(onDir: (Int) -> Unit): Modifier = composed {
+    val cb by rememberUpdatedState(onDir)
+    pointerInput(Unit) {
+        var total = 0f
+        detectHorizontalDragGestures(onDragStart = { total = 0f }, onDragEnd = { if (total < -120) cb(1) else if (total > 120) cb(-1) }) { _, d -> total += d }
+    }
 }
 
 @Composable
@@ -115,7 +121,7 @@ fun Legend(q: Q) {
 }
 
 @Composable
-private fun EvLabel(q: Q, e: Event, size: TextUnit, withTime: Boolean, onClick: (() -> Unit)? = null) {
+fun EvLabel(q: Q, e: Event, size: TextUnit, withTime: Boolean, onClick: (() -> Unit)? = null) {
     val cols = q.colors(e).map { hexColor(it) }
     var m = Modifier.fillMaxWidth().padding(vertical = 1.dp).clip(RoundedCornerShape(4.dp)).stripes(cols, cols.first().copy(alpha = 0.16f))
     if (onClick != null) m = m.clickable(onClick = onClick)
@@ -206,7 +212,7 @@ fun DayListCard(q: Q, ds: String, open: (Sheet) -> Unit) {
         if (evs.isEmpty()) T("予定はありません", 13.5.sp, P.sub)
         evs.forEach { e -> EventRow(q, e, ds) { open(Sheet.View(e.id)) } }
         LunchPills(q.lunchInfo(ds))
-        val td = q.d.todos.filter { q.todoVisible(it) && it.due == ds }
+        val td = q.d.todos.filter { q.todoVisible(it) && it.due == ds } + q.pt.filter { q.mineVisible(it) && it.due == ds }
         if (td.isNotEmpty()) {
             Spacer(Modifier.height(8.dp)); T("この日までのToDo", 12.sp, P.sub, true)
             td.forEach { x -> CheckRow(x.done, x.text, q.todoSub(x)) { Repo.toggleTodo(x.id) } }

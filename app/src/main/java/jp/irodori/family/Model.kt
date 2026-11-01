@@ -153,12 +153,19 @@ data class Settings(
     val voicePitch: Float = 1.3f,
     val seeded: Boolean = false,
     val hideSampleNote: Boolean = false,
+    /** きょう画面の並び順・非表示(この端末だけ) */
+    val homeOrder: List<String> = listOf("today", "hourly", "chara", "tomorrow", "shop", "todo", "week"),
+    val homeHidden: List<String> = emptyList(),
+    /** この先1週間: list=きょうから7日の一覧 / grid=月〜日の7列(ウィジェットと同じ) */
+    val weekStyle: String = "list",
 )
 
 @Serializable
 data class Weather(
     val at: Long = 0,
     val place: String = "",
+    val lat: Double = 0.0,
+    val lon: Double = 0.0,
     val curTemp: Double? = null,
     val curCode: Int? = null,
     val dTime: List<String> = emptyList(),

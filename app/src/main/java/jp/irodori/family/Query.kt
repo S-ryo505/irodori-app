@@ -4,7 +4,7 @@ import java.time.LocalDate
 import kotlin.math.roundToInt
 
 /** 画面・ウィジェット・通知で共通の「読み取り専用の計算」。データの写しを受け取って計算するだけ */
-class Q(val d: AppData, val s: Settings, val w: Weather?) {
+class Q(val d: AppData, val s: Settings, val w: Weather?, val pt: List<Todo> = emptyList()) {
 
     val members: List<Member> get() = d.members.filter { !it.deleted }
     fun member(id: String): Member? = d.members.firstOrNull { it.id == id && !it.deleted }
@@ -62,7 +62,10 @@ class Q(val d: AppData, val s: Settings, val w: Weather?) {
     // ---------- ToDo ----------
     fun todoVisible(x: Todo): Boolean = !x.deleted && (viewer == "all" || x.owner.isBlank() || x.owner == viewer) &&
         !(x.done && System.currentTimeMillis() - x.doneAt > 7L * 86_400_000)
-    fun todos(showDone: Boolean): List<Todo> = d.todos.filter { todoVisible(it) && (showDone || !it.done) }
+    /** 自分だけのToDo(この端末だけに保存・共有しない) */
+    fun mineVisible(x: Todo): Boolean = !x.deleted && !(x.done && System.currentTimeMillis() - x.doneAt > 7L * 86_400_000)
+    fun todos(showDone: Boolean, mine: Boolean = false): List<Todo> = (if (mine) pt.filter { mineVisible(it) } else d.todos.filter { todoVisible(it) })
+        .filter { showDone || !it.done }
         .sortedWith(compareBy<Todo>({ if (it.done) 1 else 0 }, { it.due.ifBlank { "9999" } }, { it.createdAt }))
     fun todoSub(x: Todo): String {
         val t = todayStr()
@@ -74,6 +77,33 @@ class Q(val d: AppData, val s: Settings, val w: Weather?) {
     fun wxDay(day: String): DayWx? {
         val x = w ?: return null; val i = x.dTime.indexOf(day); if (i < 0) return null
         return DayWx(x.dCode.getOrElse(i) { 3 }, x.dMax.getOrElse(i) { 0.0 }, x.dMin.getOrElse(i) { 0.0 }, x.dPop.getOrElse(i) { 0 }, x.dWind.getOrElse(i) { 0.0 })
+    }
+    /** いまの時刻から step 時間おきに n 個(ウィジェット・きょう画面の時間ごとの天気) */
+    fun hourlyFrom(step: Int = 3, n: Int = 8): List<Pair<String, HourWx>> {
+        val x = w ?: return emptyList()
+        val now = java.time.LocalDateTime.now()
+        val i0 = x.hTime.indexOf("${now.toLocalDate()}T${now.hour.toString().padStart(2, '0')}:00")
+        if (i0 < 0) return emptyList()
+        return (0 until n).mapNotNull { k ->
+            val j = i0 + k * step
+            if (j >= x.hTime.size) null
+            else x.hTime[j].substring(0, 10) to HourWx(x.hTime[j].substring(11, 13).toInt(), x.hTemp.getOrElse(j) { 0.0 }, x.hPop.getOrElse(j) { 0 }, x.hCode.getOrElse(j) { 3 }, x.hWind.getOrElse(j) { 0.0 })
+        }
+    }
+    /** 天気の要約1行: 場所・いま・最高/最低・降水確率の最大・風 */
+    fun wxLine(): String {
+        val x = w ?: return ""
+        val d = wxDay(todayStr()) ?: return x.place
+        val hs = hourlyFrom(1, 12)
+        val pop = hs.maxOfOrNull { it.second.pop } ?: d.pop
+        val wind = hs.maxOfOrNull { it.second.wind } ?: d.wind
+        return listOfNotNull(
+            x.place.ifBlank { null }?.let { "📍$it" },
+            x.curTemp?.let { "いま${it.roundToInt()}°" },
+            "↑${d.max.roundToInt()}° ↓${d.min.roundToInt()}°",
+            "12時間の降水確率 最大${pop}%",
+            "風 ${wind.roundToInt()}m/s",
+        ).joinToString("  ")
     }
     fun wxHours(day: String, h0: Int, h1: Int): List<HourWx> {
         val x = w ?: return emptyList(); val out = mutableListOf<HourWx>()
@@ -123,7 +153,8 @@ class Q(val d: AppData, val s: Settings, val w: Weather?) {
         val lines = evs.take(8).map { e -> "${if (e.allDay || e.start.isBlank()) "終日" else e.start} ${e.title}" + names(e).let { if (it.isNotBlank()) "（$it）" else "" } }.toMutableList()
         val b = lunchInfo(day).filter { it.st == "b" }
         if (b.isNotEmpty()) lines += "お弁当: " + b.joinToString("・") { it.m.name }
-        val td = d.todos.filter { todoVisible(it) && !it.done && it.due.isNotBlank() && it.due <= day }
+        val td = d.todos.filter { todoVisible(it) && !it.done && it.due.isNotBlank() && it.due <= day } +
+            pt.filter { mineVisible(it) && !it.done && it.due.isNotBlank() && it.due <= day }
         if (td.isNotEmpty()) lines += "ToDo: " + td.take(3).joinToString("、") { it.text } + if (td.size > 3) " ほか${td.size - 3}件" else ""
         val tr = trip()
         if (day == tr.d) {

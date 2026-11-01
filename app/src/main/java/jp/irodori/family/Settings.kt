@@ -168,7 +168,7 @@ fun SettingsScreen(q: Q) {
                 GhostBtn("いま通知を試す") { Notifier.fire(ctx, "today") }
             }
             T(if (Notifier.canPost(ctx)) "通知は許可されています" else "まだ通知が許可されていません", 12.sp, if (Notifier.canPost(ctx)) P.teal else P.rasp)
-            T("届かない端末は、Androidの設定 → アプリ → いろどり → バッテリー を「制限なし」にしてください。", 12.sp, P.sub)
+            T("届かない端末は、Androidの設定 → アプリ → カゾスケ → バッテリー を「制限なし」にしてください。", 12.sp, P.sub)
         }
 
         CardBox {
@@ -248,7 +248,7 @@ service cloud.firestore {
 
         CardBox {
             SecH("ウィジェットの置き方")
-            T("ホーム画面の何もないところを長押し →「ウィジェット」→「いろどり」を探す。\n・いろどり きょう：天気・きょうの予定・アドバイス・キャラ（タップで話す）\n・いろどり 週：月〜日の全員の予定（日曜は次の週）\n・いろどり 月：1か月の全員の予定\n・いろどり 買い物・ToDo：ウィジェット上でチェックできます", 13.sp)
+            T("ホーム画面の何もないところを長押し →「ウィジェット」→「カゾスケ」を探す。\n・カゾスケ きょう：天気・きょうの予定・アドバイス・キャラ（タップで話す）\n・カゾスケ 週：月〜日の全員の予定（日曜は次の週）\n・カゾスケ 月：1か月の全員の予定\n・カゾスケ 買い物・ToDo：ウィジェット上でチェックできます", 13.sp)
             T("バージョン ${runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""}", 11.sp, P.sub, modifier = Modifier.padding(top = 6.dp))
         }
     }

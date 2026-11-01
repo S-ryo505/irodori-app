@@ -24,10 +24,12 @@ object Repo {
     val data = MutableStateFlow(AppData())
     val settings = MutableStateFlow(Settings())
     val weather = MutableStateFlow<Weather?>(null)
+    /** 自分だけのToDo(この端末だけ・Firebaseに送らない) */
+    val privateTodos = MutableStateFlow<List<Todo>>(emptyList())
     val wxError = MutableStateFlow("")
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    fun q() = Q(data.value, settings.value, weather.value)
+    fun q() = Q(data.value, settings.value, weather.value, privateTodos.value)
 
     fun init(c: Context) {
         synchronized(lock) {
@@ -49,6 +51,7 @@ object Repo {
         runCatching { data.value = json.decodeFromString(AppData.serializer(), file("data.json").readText()) }
         runCatching { settings.value = json.decodeFromString(Settings.serializer(), file("settings.json").readText()) }
         runCatching { weather.value = json.decodeFromString(Weather.serializer(), file("weather.json").readText()) }
+        runCatching { privateTodos.value = json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(Todo.serializer()), file("private_todos.json").readText()) }
     }
 
     private var saveJob: Job? = null
@@ -103,7 +106,14 @@ object Repo {
             putShop(x.copy(done = !x.done, trip = if (!x.done) t.d else ""))
         }
     }
+    fun putPrivateTodo(t: Todo) {
+        privateTodos.value = privateTodos.value.upsert(t.copy(updatedAt = now())) { it.id }
+        val txt = json.encodeToString(kotlinx.serialization.builtins.ListSerializer(Todo.serializer()), privateTodos.value)
+        synchronized(lock) { file("private_todos.json").writeText(txt) }
+        Widgets.refresh(ctx)
+    }
     fun toggleTodo(id: String) {
+        privateTodos.value.firstOrNull { it.id == id }?.let { x -> putPrivateTodo(x.copy(done = !x.done, doneAt = if (!x.done) now() else 0)); return }
         val x = data.value.todos.firstOrNull { it.id == id } ?: return
         putTodo(x.copy(done = !x.done, doneAt = if (!x.done) now() else 0))
     }

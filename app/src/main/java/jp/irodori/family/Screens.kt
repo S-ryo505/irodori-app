@@ -10,6 +10,16 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -66,6 +76,19 @@ private fun ScreenColumn(content: @Composable () -> Unit) {
 }
 
 /* ============================ きょう ============================ */
+val HOME_SECTIONS = linkedMapOf(
+    "today" to "きょうの予定と天気", "hourly" to "時間ごとの天気", "chara" to "キャラのお話し", "tomorrow" to "あしたの予定",
+    "shop" to "お買い物", "todo" to "ToDo", "week" to "この先1週間",
+)
+/** 表示する順番(この端末の設定)。新しく増えた項目は最後に表示 */
+fun homeVisible(s: Settings): List<String> {
+    val base = s.homeOrder.filter { it in HOME_SECTIONS }.distinct()
+    return (base + HOME_SECTIONS.keys.filter { it !in base }).filter { it !in s.homeHidden }
+}
+private fun saveHome(order: List<String>) = Repo.setSettings { st ->
+    st.copy(homeOrder = order + HOME_SECTIONS.keys.filter { it !in order }, homeHidden = HOME_SECTIONS.keys.filter { it !in order })
+}
+
 @Composable
 fun TodayScreen(q: Q, open: (Sheet) -> Unit) {
     val t = todayStr(); val tm = plusDays(t, 1); val now = LocalDate.now()
@@ -73,6 +96,7 @@ fun TodayScreen(q: Q, open: (Sheet) -> Unit) {
     val wxErr by Repo.wxError.collectAsState()
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
+    var editing by remember { mutableStateOf(false) }
     ScreenColumn {
         if (q.d.events.any { it.sample && !it.deleted } && !q.s.hideSampleNote) {
             CardBox {
@@ -83,72 +107,203 @@ fun TodayScreen(q: Q, open: (Sheet) -> Unit) {
             }
         }
         if (wxErr.isNotBlank()) T(wxErr, 13.sp, P.rasp, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(P.tintR).padding(12.dp))
-        // ウィジェット風カード
-        CardBox {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                T("${now.monthValue}/${now.dayOfMonth}", 30.sp, dayCol(t, P), true)
-                T(" (${DAY[dow(now)]})", 15.sp, dayCol(t, P), true)
-                HOLI[t]?.let { T("  $it", 12.sp, P.hol) }
-                Spacer(Modifier.weight(1f))
-                val d = q.wxDay(t)
-                if (d != null) {
-                    T(wxEmoji(q.w?.curCode ?: d.code), 34.sp)
-                    Column(horizontalAlignment = Alignment.End) {
-                        T("${(q.w?.curTemp ?: d.max).roundToInt()}°", 24.sp, bold = true)
-                        T("${d.max.roundToInt()}°/${d.min.roundToInt()}° ☂${d.pop}%", 11.5.sp, P.sub)
-                        T(q.w?.place ?: "", 11.5.sp, P.sub)
-                    }
-                } else GhostBtn("天気を表示") { scope.launch { Wx.refresh(ctx, true) } }
-            }
-            Spacer(Modifier.height(8.dp))
-            DayBlock(q, t, open, "きょう")
-        }
-        // キャラ
-        CardBox {
-            val mid = q.talkMember()
-            val text by Speaker.lastText.collectAsState()
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CharStage(mid, Modifier.size(130.dp, 150.dp))
-                Spacer(Modifier.width(12.dp))
-                T(text.ifBlank { "${q.member(mid ?: "")?.name ?: ""}のキャラだよ。ボタンを押すと、${if (night) "あした" else "きょう"}の予定をお話しするね。" }, 14.sp,
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(P.card2).padding(12.dp))
-            }
-            Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Btn("🔊 きょう", P.orange, Modifier.weight(1f)) { Speaker.speak(q.talk(mid, false)) }
-                Btn("🔊 あした", P.indigo, Modifier.weight(1f)) { Speaker.speak(q.talk(mid, true)) }
-            }
-        }
-        CardBox(outline = if (night) P.indigo else null) {
-            SecH("あした ${md(tm)}", q.wxDay(tm)?.let { "${wxEmoji(it.code)} ☂${it.pop}%" } ?: "")
-            DayBlock(q, tm, open, "あした")
-        }
-        ShopCard(q, open)
-        TodoCard(q, false)
-        CardBox {
-            SecH("この先1週間", "全部の予定")
-            for (i in 0 until 7) {
-                val ds = plusDays(t, i.toLong()); val evs = q.eventsOn(ds); val w = q.wxDay(ds); val c = dayCol(ds, P)
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                    Column(Modifier.width(52.dp).clickable { open(Sheet.GoDay(ds)) }, horizontalAlignment = Alignment.CenterHorizontally) {
-                        T("${parseD(ds).dayOfMonth}", 18.sp, c, true); T(DAY[dowOf(ds)], 11.sp, c)
-                        if (w != null) { T(wxEmoji(w.code), 16.sp); T("${w.pop}%", 10.sp, P.rain) }
-                    }
-                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                        if (evs.isEmpty()) T("予定なし", 12.5.sp, P.sub)
-                        evs.forEach { e ->
-                            Row(Modifier.fillMaxWidth().clickable { open(Sheet.View(e.id)) }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(8.dp).clip(CircleShape).background(hexColor(q.color(e)))); Spacer(Modifier.width(6.dp))
-                                T(if (e.allDay || e.start.isBlank()) "終日" else e.start, 11.5.sp, P.sub); Spacer(Modifier.width(6.dp))
-                                T(e.title, 13.sp)
+        if (editing) { HomeEditor(q) { editing = false }; return@ScreenColumn }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { GhostBtn("⇅ 並べ替え・表示する項目") { editing = true } }
+
+        homeVisible(q.s).forEach { k ->
+            when (k) {
+                "today" -> CardBox {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        T("${now.monthValue}/${now.dayOfMonth}", 30.sp, dayCol(t, P), true)
+                        T(" (${DAY[dow(now)]})", 15.sp, dayCol(t, P), true)
+                        HOLI[t]?.let { T("  $it", 12.sp, P.hol) }
+                        Spacer(Modifier.weight(1f))
+                        val d = q.wxDay(t)
+                        if (d != null) {
+                            T(wxEmoji(q.w?.curCode ?: d.code), 34.sp)
+                            Column(horizontalAlignment = Alignment.End) {
+                                T("${(q.w?.curTemp ?: d.max).roundToInt()}°", 24.sp, bold = true)
+                                T("${d.max.roundToInt()}°/${d.min.roundToInt()}° ☂${d.pop}%", 11.5.sp, P.sub)
+                                T(q.w?.place ?: "", 11.5.sp, P.sub)
                             }
-                        }
-                        val b = q.lunchInfo(ds).filter { it.st == "b" }
-                        if (b.isNotEmpty()) T("弁当: " + b.joinToString("・") { it.m.name }, 12.sp, P.rasp, true)
-                        HOLI[ds]?.let { T(it, 12.sp, P.hol) }
+                        } else GhostBtn("天気を表示") { scope.launch { Wx.refresh(ctx, true) } }
                     }
+                    Spacer(Modifier.height(8.dp))
+                    DayBlock(q, t, open, "きょう")
+                }
+                "hourly" -> HourlyCard(q)
+                "chara" -> CardBox {
+                    val mid = q.talkMember()
+                    val text by Speaker.lastText.collectAsState()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CharStage(mid, Modifier.size(130.dp, 150.dp))
+                        Spacer(Modifier.width(12.dp))
+                        T(text.ifBlank { "${q.member(mid ?: "")?.name ?: ""}のキャラだよ。ボタンを押すと、${if (night) "あした" else "きょう"}の予定をお話しするね。" }, 14.sp,
+                            modifier = Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(P.card2).padding(12.dp))
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Btn("🔊 きょう", P.orange, Modifier.weight(1f)) { Speaker.speak(q.talk(mid, false)) }
+                        Btn("🔊 あした", P.indigo, Modifier.weight(1f)) { Speaker.speak(q.talk(mid, true)) }
+                    }
+                }
+                "tomorrow" -> CardBox(outline = if (night) P.indigo else null) {
+                    SecH("あした ${md(tm)}", q.wxDay(tm)?.let { "${wxEmoji(it.code)} ☂${it.pop}%" } ?: "")
+                    DayBlock(q, tm, open, "あした")
+                }
+                "shop" -> ShopCard(q, open)
+                "todo" -> TodoCard(q, false)
+                "week" -> WeekCard(q, open)
+            }
+        }
+    }
+}
+
+/** 時間ごとの天気(3時間おき)。ウィジェットと同じ並び */
+@Composable
+fun HourlyCard(q: Q) {
+    val hs = q.hourlyFrom(3, 8); val t = todayStr()
+    CardBox {
+        SecH("時間ごとの天気", q.w?.place ?: "")
+        if (hs.isEmpty()) { T("天気をまだ取得していません（設定 → 天気）", 13.sp, P.sub); return@CardBox }
+        T(q.wxLine().replace("📍${q.w?.place ?: ""}  ", ""), 12.sp, P.sub, modifier = Modifier.padding(bottom = 6.dp))
+        Row(Modifier.fillMaxWidth()) {
+            hs.forEach { (day, h) ->
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    T(if (day != t && h.h < 3) "翌${h.h}" else "${h.h}時", 11.sp, P.sub)
+                    T(wxEmoji(h.code), 20.sp)
+                    T("${h.t.roundToInt()}°", 13.sp, bold = true)
+                    T("${h.pop}%", 11.sp, if (h.pop >= 50) P.rasp else P.rain, h.pop >= 50)
                 }
             }
         }
+        // 先の日(ウィジェットに入れられなかった分をアプリ側で)
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            (1..4).forEach { i ->
+                val ds = plusDays(t, i.toLong()); val d = q.wxDay(ds)
+                if (d != null) Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    T("${parseD(ds).dayOfMonth}(${DAY[dowOf(ds)]})", 11.sp, dayCol(ds, P), true)
+                    T(wxEmoji(d.code), 16.sp)
+                    Row { T("${d.max.roundToInt()}", 12.sp, P.hol, true); T(" | ", 12.sp, P.sub); T("${d.min.roundToInt()}", 12.sp, P.sat, true) }
+                    T("☂${d.pop}%", 10.5.sp, P.rain)
+                }
+            }
+        }
+    }
+}
+
+/** この先1週間: 一覧(きょうから7日) / 7列(月〜日・ウィジェットと同じ) を切り替え */
+@Composable
+fun WeekCard(q: Q, open: (Sheet) -> Unit) {
+    val t = todayStr()
+    CardBox {
+        SecH("この先1週間") {
+            listOf("list" to "一覧", "grid" to "7列").forEach { (k, n) ->
+                Box(Modifier.padding(start = 4.dp).clip(CircleShape).background(if (q.s.weekStyle == k) P.tintI else P.card2)
+                    .clickable { Repo.setSettings { it.copy(weekStyle = k) } }.padding(horizontal = 10.dp, vertical = 4.dp)) {
+                    T(n, 12.sp, if (q.s.weekStyle == k) P.indigo else P.ink, true)
+                }
+            }
+        }
+        if (q.s.weekStyle == "grid") {
+            val st = weekStart(t)
+            T("${mdShort(st)}（月）〜 ${mdShort(plusDays(st, 6))}（日）", 12.sp, P.sub, modifier = Modifier.padding(bottom = 4.dp))
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                for (i in 0 until 7) {
+                    val ds = plusDays(st, i.toLong()); val w = q.wxDay(ds)
+                    val bento = q.lunchInfo(ds).any { it.st == "b" }
+                    Column(Modifier.weight(1f).fillMaxHeight().defaultMinSize(minHeight = 150.dp).padding(horizontal = 1.dp)
+                        .clip(RoundedCornerShape(10.dp)).background(if (ds == t) P.tintO else P.card2).clickable { open(Sheet.Day(ds)) }.padding(2.dp)) {
+                        T("${DAY[dowOf(ds)]}${parseD(ds).dayOfMonth}" + (w?.let { wxEmoji(it.code) } ?: ""), 10.5.sp, dayCol(ds, P), true, center = true, modifier = Modifier.fillMaxWidth())
+                        if (bento) T("🍱", 9.sp)
+                        q.eventsOn(ds).forEach { e -> EvLabel(q, e, 9.5.sp, true) { open(Sheet.View(e.id)) } }
+                    }
+                }
+            }
+        } else for (i in 0 until 7) {
+            val ds = plusDays(t, i.toLong()); val evs = q.eventsOn(ds); val w = q.wxDay(ds); val c = dayCol(ds, P)
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Column(Modifier.width(52.dp).clickable { open(Sheet.GoDay(ds)) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                    T("${parseD(ds).dayOfMonth}", 18.sp, c, true); T(DAY[dowOf(ds)], 11.sp, c)
+                    if (w != null) { T(wxEmoji(w.code), 16.sp); T("${w.pop}%", 10.sp, P.rain) }
+                }
+                Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                    if (evs.isEmpty()) T("予定なし", 12.5.sp, P.sub)
+                    evs.forEach { e ->
+                        Row(Modifier.fillMaxWidth().clickable { open(Sheet.View(e.id)) }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(hexColor(q.color(e)))); Spacer(Modifier.width(6.dp))
+                            T(if (e.allDay || e.start.isBlank()) "終日" else e.start, 11.5.sp, P.sub); Spacer(Modifier.width(6.dp))
+                            T(e.title, 13.sp)
+                        }
+                    }
+                    val b = q.lunchInfo(ds).filter { it.st == "b" }
+                    if (b.isNotEmpty()) T("弁当: " + b.joinToString("・") { it.m.name }, 12.sp, P.rasp, true)
+                    HOLI[ds]?.let { T(it, 12.sp, P.hol) }
+                }
+            }
+        }
+    }
+}
+
+/** きょう画面の編集: 長押しして上下にドラッグで並べ替え、－で非表示、＋で追加。この端末だけに保存 */
+@Composable
+fun HomeEditor(q: Q, done: () -> Unit) {
+    val order = remember { mutableStateListOf<String>().apply { addAll(homeVisible(q.s)) } }
+    var dragKey by remember { mutableStateOf<String?>(null) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+    val itemH = 58.dp
+    val px = with(LocalDensity.current) { itemH.toPx() }
+    CardBox(outline = P.rasp) {
+        SecH("きょう画面の編集") { Btn("完了", P.rasp, small = true) { saveHome(order.toList()); done() } }
+        T("≡ の行を長押しして上下に動かすと順番が変わります（▲▼でも動かせます）。－で表示しない、下の＋で追加。この端末だけに保存されます。", 12.sp, P.sub, modifier = Modifier.padding(bottom = 8.dp))
+        order.toList().forEach { k ->
+            key(k) {
+                val dragging = dragKey == k
+                Row(Modifier.fillMaxWidth().height(itemH).zIndex(if (dragging) 1f else 0f)
+                    .graphicsLayer { translationY = if (dragging) dragY else 0f; shadowElevation = if (dragging) 12f else 0f }
+                    .padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(if (dragging) P.tintO else P.card2)
+                    .pointerInput(k) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { dragKey = k; dragY = 0f },
+                            onDragEnd = { dragKey = null; dragY = 0f; saveHome(order.toList()) },
+                            onDragCancel = { dragKey = null; dragY = 0f },
+                        ) { ch, d ->
+                            ch.consume()
+                            dragY += d.y
+                            val i = order.indexOf(k)
+                            val target = (i + (dragY / px).roundToInt()).coerceIn(0, order.lastIndex)
+                            if (target != i) { order.removeAt(i); order.add(target, k); dragY -= (target - i) * px }
+                        }
+                    }.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    T("≡", 20.sp, P.sub, true); Spacer(Modifier.width(12.dp))
+                    T(HOME_SECTIONS[k] ?: k, 15.sp, bold = true, modifier = Modifier.weight(1f))
+                    val i = order.indexOf(k)
+                    T("▲", 14.sp, if (i > 0) P.ink else P.line, modifier = Modifier.clickable(enabled = i > 0) { order.removeAt(i); order.add(i - 1, k); saveHome(order.toList()) }.padding(8.dp))
+                    T("▼", 14.sp, if (i < order.lastIndex) P.ink else P.line, modifier = Modifier.clickable(enabled = i < order.lastIndex) { order.removeAt(i); order.add(i + 1, k); saveHome(order.toList()) }.padding(8.dp))
+                    Box(Modifier.size(30.dp).clip(CircleShape).background(P.tintR).clickable { order.remove(k); saveHome(order.toList()) }, contentAlignment = Alignment.Center) { T("－", 16.sp, P.rasp, true) }
+                }
+            }
+        }
+        val hidden = HOME_SECTIONS.keys.filter { it !in order }
+        if (hidden.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp)); T("追加できる項目", 12.sp, P.sub, true)
+            hidden.forEach { k ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(P.card2)
+                    .clickable { order.add(k); saveHome(order.toList()) }.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    T(HOME_SECTIONS[k] ?: k, 15.sp, P.sub, modifier = Modifier.weight(1f))
+                    Box(Modifier.size(30.dp).clip(CircleShape).background(P.tintT), contentAlignment = Alignment.Center) { T("＋", 16.sp, P.teal, true) }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        T("この先1週間の表示", 12.sp, P.sub, true)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+            listOf("list" to "一覧（きょうから7日）", "grid" to "7列（月〜日・ウィジェットと同じ）").forEach { (k, n) ->
+                Box(Modifier.clip(CircleShape).background(if (q.s.weekStyle == k) P.tintI else P.card2).clickable { Repo.setSettings { it.copy(weekStyle = k) } }.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    T(n, 12.sp, if (q.s.weekStyle == k) P.indigo else P.ink, true)
+                }
+            }
+        }
+        GhostBtn("最初の並びに戻す", Modifier.padding(top = 10.dp)) { order.clear(); order.addAll(HOME_SECTIONS.keys); saveHome(order.toList()) }
     }
 }
 
@@ -234,24 +389,41 @@ fun ShopCard(q: Q, open: (Sheet) -> Unit) {
 @Composable
 fun TodoCard(q: Q, full: Boolean) {
     val ctx = LocalContext.current
-    val items = q.todos(full)
+    var mine by remember { mutableStateOf(false) }
+    val shared = q.todos(full); val own = q.todos(full, mine = true)
+    val items = if (mine) own else shared
     var text by remember { mutableStateOf("") }
     var owner by remember { mutableStateOf(if (q.viewer != "all") q.viewer else "") }
     var due by remember { mutableStateOf("") }
     CardBox {
-        SecH("ToDo", "${items.count { !it.done }}件")
-        if (items.isEmpty()) T("ToDoはありません", 13.5.sp, P.sub)
+        SecH("ToDo")
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(P.card2).padding(3.dp)) {
+            listOf(false to "みんなのToDo ${shared.count { !it.done }}", true to "自分だけ ${own.count { !it.done }}").forEach { (k, n) ->
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (mine == k) (if (k) P.tintI else P.tintR) else Color.Transparent)
+                    .clickable { mine = k }.padding(vertical = 7.dp), contentAlignment = Alignment.Center) {
+                    T(n, 13.sp, if (mine == k) (if (k) P.indigo else P.rasp) else P.sub, true)
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        if (items.isEmpty()) T(if (mine) "自分だけのToDoはありません" else "ToDoはありません", 13.5.sp, P.sub, modifier = Modifier.padding(vertical = 6.dp))
         (if (full) items else items.take(6)).forEach { x -> CheckRow(x.done, x.text, q.todoSub(x), x.due.isNotBlank() && x.due < todayStr() && !x.done) { Repo.toggleTodo(x.id) } }
         if (!full && items.size > 6) T("ほか${items.size - 6}件（リストタブ）", 12.sp, P.sub)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-            Field(text, { text = it }, "やること（例: 上履きを洗う）", Modifier.weight(1f)); Spacer(Modifier.width(6.dp))
-            Btn("追加", small = true) {
-                if (text.isNotBlank()) { Repo.putTodo(Todo(uid(), text.trim(), owner, due, createdAt = System.currentTimeMillis())); text = ""; due = "" }
+            Field(text, { text = it }, if (mine) "自分だけのやること" else "みんなに見えるやること", Modifier.weight(1f)); Spacer(Modifier.width(6.dp))
+            Btn("追加", if (mine) P.indigo else P.rasp, small = true) {
+                if (text.isNotBlank()) {
+                    val x = Todo(uid(), text.trim(), if (mine) "" else owner, due, createdAt = System.currentTimeMillis())
+                    if (mine) Repo.putPrivateTodo(x) else Repo.putTodo(x)
+                    text = ""; due = ""
+                }
             }
         }
-        MemberChips(q, setOf(owner), { owner = if (owner == it) "" else it }, withAll = true, allSelected = owner.isBlank(), onAll = { owner = "" })
+        if (!mine) MemberChips(q, setOf(owner), { owner = if (owner == it) "" else it }, withAll = true, allSelected = owner.isBlank(), onAll = { owner = "" })
         PickBox("期限（なくてもよい）", if (due.isBlank()) "" else md(due), Modifier.padding(top = 6.dp)) { pickDate(ctx, due) { due = it } }
-        if (full) T("チェックしたToDoは7日後に自動で消えます。期限を入れると、その日のカレンダー一覧と通知にも出ます。", 12.sp, P.sub)
+        T(if (mine) "🔒 自分だけのToDoはこのスマホの中だけに保存され、家族には見えません（共有されません）。通知と自分のカレンダーには出ます。"
+          else "家族みんなに見えるToDoです。だれの分かを選ぶと、その人の画面と通知にも出ます。", 12.sp, P.sub)
+        if (full) T("チェックしたToDoは7日後に自動で消えます。", 12.sp, P.sub)
     }
 }
 

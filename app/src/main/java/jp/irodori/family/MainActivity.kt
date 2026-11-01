@@ -86,7 +86,8 @@ fun App(act: MainActivity) {
     val d by Repo.data.collectAsState()
     val s by Repo.settings.collectAsState()
     val w by Repo.weather.collectAsState()
-    val q = Q(d, s, w)
+    val pt by Repo.privateTodos.collectAsState()
+    val q = Q(d, s, w, pt)
     var tab by rememberSaveable { mutableStateOf(if (s.startView == "home") "home" else "cal") }
     var mode by rememberSaveable { mutableStateOf(if (s.startView in listOf("month", "week", "day")) s.startView else "month") }
     var cursor by rememberSaveable { mutableStateOf(initCursor(mode)) }
@@ -112,9 +113,9 @@ fun App(act: MainActivity) {
                     }
                     IconButton(onClick = { cursor = moveCursor(mode, cursor, 1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "次へ", tint = P.sub) }
                 } else {
-                    androidx.compose.foundation.Image(painterResource(R.drawable.mascot), null, Modifier.size(30.dp))
+                    androidx.compose.foundation.Image(painterResource(R.drawable.logo), null, Modifier.size(30.dp))
                     Spacer(Modifier.width(6.dp))
-                    T("いろどり", 19.sp, bold = true); Spacer(Modifier.width(8.dp))
+                    T("カゾスケ", 19.sp, bold = true); Spacer(Modifier.width(8.dp))
                     T(mapOf("home" to "きょう", "imp" to "とりこみ", "list" to "リスト", "set" to "設定")[tab] ?: "", 13.sp, P.sub)
                 }
                 Spacer(Modifier.weight(1f))

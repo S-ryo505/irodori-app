@@ -45,6 +45,7 @@ import androidx.glance.unit.ColorProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.time.LocalDate
 import kotlin.math.roundToInt
@@ -73,6 +74,7 @@ private object WC {
     val rasp = DayNight(day = Color(0xFFC8457A), night = Color(0xFFE47AA3))
     val teal = DayNight(day = Color(0xFF2E84A3), night = Color(0xFF5FB3CF))
     val orange = DayNight(day = Color(0xFFE98D4D), night = Color(0xFFF2A26C))
+    val rain = DayNight(day = Color(0xFF4C86C0), night = Color(0xFF7FB0E0))
     val todayBg = DayNight(day = Color(0xFFFDEDE0), night = Color(0xFF3A2C24))
     val hol = DayNight(day = Color(0xFFD0536E), night = Color(0xFFEE7D93))
     val sat = DayNight(day = Color(0xFF3F78B5), night = Color(0xFF7FAEE3))
@@ -170,6 +172,7 @@ private fun TodayContent(q: Q, chara: ImageProvider) {
 class WeekWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         Repo.init(context)
+        withTimeoutOrNull(12_000) { Wx.refresh(context, false) }
         val q = Repo.q()
         provideContent { WeekContent(q) }
     }
@@ -187,7 +190,7 @@ private fun WeekContent(q: Q) {
     val st = weekStart(todayStr()); val t = todayStr()
     Column(GlanceModifier.fillMaxSize().background(WC.bg).cornerRadius(22.dp).padding(8.dp).clickable(openApp)) {
         Text("${mdShort(st)}(月) 〜 ${mdShort(plusDays(st, 6))}(日)", style = ts(12, WC.sub, true), modifier = GlanceModifier.padding(start = 4.dp, bottom = 4.dp))
-        Row(GlanceModifier.fillMaxSize()) {
+        Row(GlanceModifier.fillMaxWidth().defaultWeight()) {
             for (i in 0 until 7) {
                 val ds = plusDays(st, i.toLong())
                 val evs = q.eventsOn(ds)
@@ -196,10 +199,33 @@ private fun WeekContent(q: Q) {
                 Column(GlanceModifier.defaultWeight().fillMaxHeight().padding(horizontal = 1.dp)
                     .background(if (ds == t) WC.todayBg else WC.bg2).cornerRadius(10.dp).padding(3.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("${DAY[dowOf(ds)]} ${parseD(ds).dayOfMonth}", style = ts(11, dayColor(ds), true))
-                    Text((wx?.let { wxEmoji(it.code) } ?: "") + if (bento) "🍱" else "", style = ts(10))
+                    Text("${DAY[dowOf(ds)]}${parseD(ds).dayOfMonth}" + (wx?.let { wxEmoji(it.code) } ?: ""), style = ts(10, dayColor(ds), true), maxLines = 1)
+                    if (bento) Text("🍱弁当", style = ts(8, WC.rasp, true))
                     Text(evs.joinToString("\n") { (if (it.allDay || it.start.isBlank()) "" else it.start.removePrefix("0") + " ") + it.title }.ifBlank { " " },
                         style = ts(9, WC.ink, true))
+                }
+            }
+        }
+        Spacer(GlanceModifier.height(4.dp))
+        WxStrip(q)
+    }
+}
+
+/** 時間ごとの天気(3時間おき8つ): 時刻・天気・気温・降水確率。上に要約1行 */
+@Composable
+private fun WxStrip(q: Q) {
+    val hs = q.hourlyFrom(3, 8)
+    if (hs.isEmpty()) { Text("天気: アプリを開くと表示されます", style = ts(10, WC.sub)); return }
+    val t = todayStr()
+    Column(GlanceModifier.fillMaxWidth().background(WC.bg2).cornerRadius(12.dp).padding(horizontal = 4.dp, vertical = 3.dp)) {
+        Text(q.wxLine(), style = ts(9, WC.sub, true), maxLines = 1)
+        Row(GlanceModifier.fillMaxWidth()) {
+            hs.forEach { (day, h) ->
+                Column(GlanceModifier.defaultWeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(if (day != t && h.h < 3) "翌${h.h}時" else "${h.h}時", style = ts(9, WC.sub))
+                    Text(wxEmoji(h.code), style = ts(13))
+                    Text("${h.t.roundToInt()}°", style = ts(10, WC.ink, true))
+                    Text("${h.pop}%", style = ts(9, if (h.pop >= 50) WC.rasp else WC.rain, h.pop >= 50))
                 }
             }
         }
@@ -210,6 +236,7 @@ private fun WeekContent(q: Q) {
 class MonthWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         Repo.init(context)
+        withTimeoutOrNull(12_000) { Wx.refresh(context, false) }
         val q = Repo.q()
         provideContent { MonthContent(q) }
     }
@@ -234,12 +261,14 @@ private fun MonthContent(q: Q) {
                     val evs = q.eventsOn(ds)
                     val other = dd.monthValue != now.monthValue
                     Column(GlanceModifier.defaultWeight().fillMaxHeight().padding(1.dp).background(if (ds == t) WC.todayBg else WC.bg2).cornerRadius(6.dp).padding(2.dp)) {
-                        Text("${dd.dayOfMonth}" + if (q.lunchInfo(ds).any { it.st == "b" }) "🍱" else "", style = ts(9, if (other) WC.sub else dayColor(ds), true))
+                        Text("${dd.dayOfMonth}" + (q.wxDay(ds)?.let { wxEmoji(it.code) } ?: "") + if (q.lunchInfo(ds).any { it.st == "b" }) "🍱" else "", style = ts(9, if (other) WC.sub else dayColor(ds), true), maxLines = 1)
                         if (evs.isNotEmpty()) Text(evs.joinToString("\n") { it.title }, style = ts(8, if (other) WC.sub else WC.ink))
                     }
                 }
             }
         }
+        Spacer(GlanceModifier.height(3.dp))
+        WxStrip(q)
     }
 }
 

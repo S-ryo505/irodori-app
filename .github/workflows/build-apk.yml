@@ -23,11 +23,11 @@ jobs:
       - name: Build APK
         run: gradle :app:assembleRelease --no-daemon --stacktrace
       - name: Rename
-        run: cp app/build/outputs/apk/release/app-release.apk irodori.apk
+        run: cp app/build/outputs/apk/release/app-release.apk kazosuke.apk
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v2.${{ github.run_number }}
-          name: いろどり v2.${{ github.run_number }}
-          body: スマホでこのページを開き、下の irodori.apk をタップしてインストールしてください（上書きでOK・データは消えません）。
-          files: irodori.apk
+          name: カゾスケ v2.${{ github.run_number }}
+          body: スマホでこのページを開き、下の kazosuke.apk をタップしてインストールしてください（上書きでOK・データは消えません）。
+          files: kazosuke.apk
           make_latest: true

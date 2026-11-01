@@ -170,6 +170,8 @@ object Wx {
                 var lat = 0.0; var lon = 0.0; var place = ""; var ok = false
                 if (s.useGps) location(ctx)?.let { lat = Math.round(it.latitude * 1000) / 1000.0; lon = Math.round(it.longitude * 1000) / 1000.0; place = placeName(ctx, lat, lon); ok = true }
                 if (!ok && s.locName.isNotBlank()) { lat = s.locLat; lon = s.locLon; place = s.locName; ok = true }
+                // ウィジェットの裏更新などで位置が取れないときは、前回の地点を使う
+                if (!ok && cur != null && (cur.lat != 0.0 || cur.lon != 0.0)) { lat = cur.lat; lon = cur.lon; place = cur.place; ok = true }
                 if (!ok) { Repo.wxError.value = "位置情報が使えません。設定 → 天気 で位置情報を許可するか、地名を選んでください"; return@withContext }
                 val txt = http("https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,weather_code" +
                     "&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m" +
@@ -181,7 +183,7 @@ object Wx {
                 fun JSONArray.dbl() = List(length()) { optDouble(it, 0.0) }
                 fun JSONArray.int() = List(length()) { optInt(it, 0) }
                 Repo.setWeather(Weather(
-                    at = System.currentTimeMillis(), place = place,
+                    at = System.currentTimeMillis(), place = place, lat = lat, lon = lon,
                     curTemp = cu?.optDouble("temperature_2m")?.takeIf { !it.isNaN() },
                     curCode = cu?.let { if (it.has("weather_code")) it.optInt("weather_code") else null },
                     dTime = dl.getJSONArray("time").str(), dCode = dl.getJSONArray("weather_code").int(),
