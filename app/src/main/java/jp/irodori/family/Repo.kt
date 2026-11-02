@@ -247,8 +247,8 @@ object Samples {
             Event(uid(), nextDow(6), start = "09:00", end = "15:00", title = "家族でピクニック", location = "河川敷", outdoor = true, cat = "out", sample = true, updatedAt = 1),
         )
         val ls = listOf(
-            Lesson("smpPiano", "ピアノ", "k2", listOf(3), "16:30", "17:15", "ピアノ教室", sample = true, updatedAt = 1),
-            Lesson("smpCheer", "チアダンス", "k2", listOf(6), "10:00", "11:30", "市民体育館", skipHoliday = false, sample = true, updatedAt = 1),
+            Lesson("smpPiano", "ピアノ", "k2", days = listOf(3), start = "16:30", end = "17:15", location = "ピアノ教室", sample = true, updatedAt = 1),
+            Lesson("smpCheer", "チアダンス", "k2", members = listOf("k2", "k3"), days = listOf(6), start = "10:00", end = "11:30", location = "市民体育館", skipHoliday = false, sample = true, updatedAt = 1),
         )
         val st = mutableMapOf<String, String>(); val menus = mutableMapOf<String, String>()
         val first = t.withDayOfMonth(1); var bdone = false
