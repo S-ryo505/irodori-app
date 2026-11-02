@@ -161,9 +161,15 @@ object Wx {
         a?.locality ?: a?.subAdminArea ?: a?.adminArea ?: "現在地"
     }.getOrDefault("現在地")
 
+    @Volatile private var busy = false
     suspend fun refresh(ctx: Context, force: Boolean) {
         val cur = Repo.weather.value
         if (!force && cur != null && System.currentTimeMillis() - cur.at < 30 * 60_000L) return
+        if (busy) return
+        busy = true
+        try { refreshInner(ctx, cur) } finally { busy = false }
+    }
+    private suspend fun refreshInner(ctx: Context, cur: Weather?) {
         withContext(Dispatchers.IO) {
             try {
                 val s = Repo.settings.value

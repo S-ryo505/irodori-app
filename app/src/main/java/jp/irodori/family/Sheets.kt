@@ -130,6 +130,7 @@ fun compressUri(ctx: Context, uri: Uri, max: Int = 1024, quality: Int = 70): Str
 @Composable
 fun DaySheet(q: Q, ds: String, open: (Sheet) -> Unit) {
     Title(md(ds) + (HOLI[ds]?.let { "  $it" } ?: ""))
+    DayColorPicker(q, ds)
     q.wxDay(ds)?.let { T("${wxEmoji(it.code)} ${WXL[wxKind(it.code)]}　${it.max.toInt()}° / ${it.min.toInt()}°　降水確率${it.pop}%", 13.sp, P.sub) }
     LunchPills(q.lunchInfo(ds))
     Spacer(Modifier.height(6.dp))
@@ -217,6 +218,8 @@ fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
     val imgs = remember { mutableStateListOf<String>().apply { addAll(ev.images) } }
     var rep by remember { mutableStateOf(0) }
     val rem = remember { mutableStateListOf<Int>().apply { addAll(ev.remind) } }
+    var icon by remember { mutableStateOf(ev.icon) }
+    var showIcons by remember { mutableStateOf(false) }
     var until by remember { mutableStateOf(plusDays(ev.date, 56)) }
     var err by remember { mutableStateOf("") }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(4)) { uris ->
@@ -267,6 +270,12 @@ fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
         if (imgs.size < 4) GhostBtn("＋ 写真") { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
     }
     RemindChips(rem)
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+        T("カレンダーのマーク", 12.sp, P.sub, true, Modifier.weight(1f))
+        T(icon.ifBlank { q.iconOf(ev.copy(title = title, icon = "")).ifBlank { "なし" } + "（自動）" }, 16.sp)
+        Spacer(Modifier.width(8.dp)); GhostBtn(if (showIcons) "閉じる" else "選ぶ") { showIcons = !showIcons }
+    }
+    if (showIcons) EmojiPicker(icon) { icon = it; showIcons = false }
     if (isNew) {
         T("くり返し", 12.sp, P.sub, true)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
@@ -282,7 +291,7 @@ fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
             val ad = allDay || start.isBlank()
             val base = ev.copy(title = title.trim(), date = date, allDay = ad, start = if (ad) "" else start, end = if (ad) "" else end,
                 endDate = if (ad && endDate > date) endDate else "", location = loc.trim(), cat = cat, outdoor = outdoor, memo = memo.trim(),
-                members = mem.toList(), images = imgs.toList(), remind = rem.sorted(), edited = ev.seriesId.isNotBlank() || ev.edited)
+                members = mem.toList(), images = imgs.toList(), remind = rem.sorted(), icon = icon, edited = ev.seriesId.isNotBlank() || ev.edited)
             if (isNew && rep > 0) {
                 val sid = uid(); var d = date; var n = 0
                 while (d <= until && n < 60) { Repo.putEvent(base.copy(id = uid(), date = d, seriesId = sid, edited = false)); d = plusDays(d, rep.toLong()); n++ }
@@ -437,4 +446,38 @@ fun RemindChips(rem: MutableList<Int>) {
         }
     }
     T("終日の予定は当日8時が基準です。お知らせは、その予定に関係する人のスマホに出ます（設定 → スマホ通知 で変更可）。", 11.5.sp, P.sub, modifier = Modifier.padding(bottom = 8.dp))
+}
+
+/** 大事な日の背景色と、ひとこと(家族で共有) */
+@Composable
+fun DayColorPicker(q: Q, ds: String) {
+    val cur = q.d.days.firstOrNull { it.id == ds && !it.deleted }
+    var label by remember(ds, cur?.label) { mutableStateOf(cur?.label ?: "") }
+    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp)).background(P.card2).padding(10.dp)) {
+        T("この日の色（大事な日に）", 12.sp, P.sub, true)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+            Box(Modifier.size(30.dp).clip(CircleShape).background(P.card).border(2.dp, if (cur == null || cur.color.isBlank()) P.ink else P.line, CircleShape)
+                .clickable { Repo.putDay(DayMark(ds, "", label)) }, contentAlignment = Alignment.Center) { T("なし", 9.sp, P.sub, true) }
+            DAY_COLORS.forEach { c ->
+                Box(Modifier.size(30.dp).clip(CircleShape).background(hexColor(c)).border(2.5.dp, if (cur?.color == c) P.ink else Color.Transparent, CircleShape)
+                    .clickable { Repo.putDay(DayMark(ds, c, label)) })
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Field(label, { label = it }, "ひとこと（例: 参観日、給料日）", Modifier.weight(1f)); Spacer(Modifier.width(6.dp))
+            Btn("保存", small = true) { Repo.putDay(DayMark(ds, cur?.color ?: DAY_COLORS[0], label.trim())) }
+        }
+    }
+}
+
+/** 絵文字を選ぶ(マーク用) */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun EmojiPicker(cur: String, allowNone: Boolean = true, onPick: (String) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (allowNone) Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(if (cur.isBlank()) P.tintR else P.card2).clickable { onPick("") }, contentAlignment = Alignment.Center) { T("自動", 10.sp, P.sub, true) }
+        EMOJI_CHOICES.forEach { e ->
+            Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(if (cur == e) P.tintR else P.card2).clickable { onPick(e) }, contentAlignment = Alignment.Center) { T(e, 20.sp) }
+        }
+    }
 }

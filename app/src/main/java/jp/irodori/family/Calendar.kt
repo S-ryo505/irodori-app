@@ -127,7 +127,7 @@ fun EvLabel(q: Q, e: Event, size: TextUnit, withTime: Boolean, onClick: (() -> U
     if (onClick != null) m = m.clickable(onClick = onClick)
     Column(m.padding(start = (3 * cols.size + 2).dp, end = 1.dp, top = 1.dp, bottom = 2.dp)) {
         if (withTime) T(if (e.allDay || e.start.isBlank()) "終日" else e.start.removePrefix("0"), size * 0.92f, P.sub)
-        T(e.title, size, P.ink, true)
+        T(q.iconOf(e) + e.title, size, P.ink, true)
     }
 }
 
@@ -149,18 +149,22 @@ fun MonthView(q: Q, cursor: String, onPick: (String) -> Unit, modifier: Modifier
                     val evs = q.eventsOn(ds)
                     val wx = q.wxDay(ds)
                     val bento = q.lunchInfo(ds).filter { it.st == "b" }
+                    val dbg = q.dayBg(ds)
                     Column(Modifier.weight(1f).fillMaxHeight().defaultMinSize(minHeight = 86.dp)
                         .background(if (ds == cursor) P.tintO else if (other) P.card2 else P.card)
-                        .border(0.5.dp, P.line).clickable { onPick(ds) }.padding(2.dp)) {
+                        .then(if (dbg != null) Modifier.background(hexColor(dbg).copy(alpha = 0.38f)) else Modifier)
+                        .border(if (ds == t) 2.5.dp else 0.5.dp, if (ds == t) P.rasp else P.line).clickable { onPick(ds) }.padding(2.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(22.dp).clip(CircleShape).background(if (ds == t) P.rasp else Color.Transparent), contentAlignment = Alignment.Center) {
                                 T("${dd.dayOfMonth}", 12.sp, if (ds == t) Color.White else dayCol(ds, P).copy(alpha = if (other) 0.45f else 1f), true)
                             }
                             Spacer(Modifier.weight(1f))
-                            if (wx != null) T(wxEmoji(wx.code), 10.sp)
+                            if (wx != null) T(wxEmoji(wx.code), 11.sp)
                         }
-                        if (bento.isNotEmpty()) T("弁" + if (q.viewer == "all") bento.joinToString("") { it.m.name.take(1) } else "", 9.sp, P.rasp, true,
-                            Modifier.clip(RoundedCornerShape(5.dp)).background(P.tintR).padding(horizontal = 3.dp))
+                        val icons = q.dayIcons(ds)
+                        if (icons.isNotEmpty()) T(icons.joinToString(""), 14.sp)
+                        if (bento.isNotEmpty() && q.viewer == "all") T("弁当:" + bento.joinToString("") { it.m.name.take(1) }, 8.5.sp, P.rasp, true)
+                        q.dayMark(ds)?.label?.takeIf { it.isNotBlank() }?.let { T(it, 8.5.sp, P.ink, true) }
                         evs.forEach { e -> Box(Modifier.fillMaxWidth().background(Color.Transparent).then(if (other) Modifier.padding(0.dp) else Modifier)) { EvLabel(q, e, fs(q), q.s.showTime) } }
                     }
                 }
@@ -177,14 +181,18 @@ fun WeekView(q: Q, cursor: String, onPick: (String) -> Unit, open: (Sheet) -> Un
         Row(Modifier.fillMaxWidth()) {
             for (i in 0 until 7) {
                 val ds = plusDays(st, i.toLong()); val wx = q.wxDay(ds); val col = dayCol(ds, P)
-                Column(Modifier.weight(1f).background(if (ds == cursor) P.tintO else Color.Transparent).border(0.5.dp, P.line).clickable { onPick(ds) }.padding(vertical = 6.dp),
+                val dbg = q.dayBg(ds)
+                Column(Modifier.weight(1f).background(if (ds == cursor) P.tintO else Color.Transparent)
+                    .then(if (dbg != null) Modifier.background(hexColor(dbg).copy(alpha = 0.38f)) else Modifier)
+                    .border(if (ds == t) 2.5.dp else 0.5.dp, if (ds == t) P.rasp else P.line).clickable { onPick(ds) }.padding(vertical = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     T(DAY[dowOf(ds)], 11.sp, col, true)
                     Box(Modifier.size(28.dp).clip(CircleShape).background(if (ds == t) P.rasp else Color.Transparent), contentAlignment = Alignment.Center) {
                         T("${parseD(ds).dayOfMonth}", 16.sp, if (ds == t) Color.White else col, true)
                     }
-                    T(wx?.let { wxEmoji(it.code) } ?: " ", 12.sp)
+                    T(wx?.let { wxEmoji(it.code) } ?: " ", 13.sp)
                     T(wx?.let { "${it.pop}%" } ?: " ", 9.5.sp, P.rain)
+                    T(q.dayIcons(ds).joinToString("").ifBlank { " " }, 14.sp)
                 }
             }
         }
@@ -192,11 +200,13 @@ fun WeekView(q: Q, cursor: String, onPick: (String) -> Unit, open: (Sheet) -> Un
             for (i in 0 until 7) {
                 val ds = plusDays(st, i.toLong())
                 val bento = q.lunchInfo(ds).filter { it.st == "b" }
+                val dbg = q.dayBg(ds)
                 Column(Modifier.weight(1f).fillMaxHeight().defaultMinSize(minHeight = 380.dp).background(if (ds == cursor) P.tintO.copy(alpha = 0.5f) else Color.Transparent)
-                    .border(0.5.dp, P.line).clickable { onPick(ds) }.padding(horizontal = 2.dp, vertical = 4.dp)) {
+                    .then(if (dbg != null) Modifier.background(hexColor(dbg).copy(alpha = 0.38f)) else Modifier)
+                    .border(if (ds == todayStr()) 2.5.dp else 0.5.dp, if (ds == todayStr()) P.rasp else P.line).clickable { onPick(ds) }.padding(horizontal = 2.dp, vertical = 4.dp)) {
                     HOLI[ds]?.let { T(it, 9.sp, P.hol, true) }
-                    if (bento.isNotEmpty()) T("弁" + if (q.viewer == "all") bento.joinToString("") { it.m.name.take(1) } else "", 9.sp, P.rasp, true,
-                        Modifier.clip(RoundedCornerShape(5.dp)).background(P.tintR).padding(horizontal = 3.dp))
+                    q.dayMark(ds)?.label?.takeIf { it.isNotBlank() }?.let { T(it, 9.sp, P.ink, true) }
+                    if (bento.isNotEmpty() && q.viewer == "all") T("弁当:" + bento.joinToString("") { it.m.name.take(1) }, 9.sp, P.rasp, true)
                     q.eventsOn(ds).forEach { e -> EvLabel(q, e, size, true) { open(Sheet.View(e.id)) } }
                 }
             }

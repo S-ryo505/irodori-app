@@ -155,6 +155,45 @@ fun SettingsScreen(q: Q) {
         }
 
         CardBox {
+            var pickFor by remember { mutableStateOf<Int?>(null) }   // -1=お弁当, 0..=ルールの番号
+            SecH("マーク（絵）と日の色", "この端末")
+            T("カレンダーとウィジェットの日付の横に出る絵です。予定名に言葉が入っていると、その絵が出ます（「|」で区切ると複数の言葉）。予定ごとに選ぶこともできます（予定の編集画面）。", 12.sp, P.sub)
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                T("お弁当の日", 14.sp, bold = true, modifier = Modifier.weight(1f))
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(P.card2).clickable { pickFor = if (pickFor == -1) null else -1 }, contentAlignment = Alignment.Center) { T(q.s.bentoIcon.ifBlank { "🍱" }, 22.sp) }
+            }
+            if (pickFor == -1) EmojiPicker(q.s.bentoIcon, allowNone = false) { e -> Repo.setSettings { it.copy(bentoIcon = e) }; pickFor = null }
+            T("お弁当の日の背景色", 12.sp, P.sub, true, Modifier.padding(top = 8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+                Box(Modifier.size(30.dp).clip(CircleShape).background(P.card2).border(2.dp, if (q.s.bentoBg.isBlank()) P.ink else P.line, CircleShape)
+                    .clickable { Repo.setSettings { it.copy(bentoBg = "") } }, contentAlignment = Alignment.Center) { T("なし", 9.sp, P.sub, true) }
+                DAY_COLORS.forEach { c ->
+                    Box(Modifier.size(30.dp).clip(CircleShape).background(hexColor(c)).border(2.5.dp, if (q.s.bentoBg == c) P.ink else Color.Transparent, CircleShape)
+                        .clickable { Repo.setSettings { it.copy(bentoBg = c) } })
+                }
+            }
+            T("大事な日の色は、カレンダーで日付を2回タップ →「この日の色」で付けられます（家族で共有）。", 12.sp, P.sub)
+            Spacer(Modifier.height(10.dp))
+            T("言葉 → 絵", 12.sp, P.sub, true)
+            q.s.marks.forEachIndexed { i, r ->
+                var word by remember(i, r.word) { mutableStateOf(r.word) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(P.card2).clickable { pickFor = if (pickFor == i) null else i }, contentAlignment = Alignment.Center) { T(r.icon.ifBlank { "？" }, 22.sp) }
+                    Spacer(Modifier.width(8.dp))
+                    Field(word, { word = it }, "言葉", Modifier.weight(1f))
+                    if (word != r.word) { Spacer(Modifier.width(4.dp)); Btn("保存", small = true) { Repo.setSettings { st -> st.copy(marks = st.marks.toMutableList().also { it[i] = r.copy(word = word.trim()) }) } } }
+                    else { Spacer(Modifier.width(4.dp)); T("－", 18.sp, P.rasp, true, Modifier.clickable { Repo.setSettings { st -> st.copy(marks = st.marks.filterIndexed { k, _ -> k != i }) } }.padding(8.dp)) }
+                }
+                if (pickFor == i) EmojiPicker(r.icon, allowNone = false) { e -> Repo.setSettings { st -> st.copy(marks = st.marks.toMutableList().also { it[i] = r.copy(icon = e) }) }; pickFor = null }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
+                GhostBtn("＋ ルールを追加") { Repo.setSettings { it.copy(marks = it.marks + MarkRule("", "⭐")) } }
+                GhostBtn("最初の設定に戻す") { Repo.setSettings { it.copy(marks = DEFAULT_MARKS) } }
+            }
+        }
+
+        CardBox {
             SecH("スマホ通知", "朝はきょう・夜はあした")
             Toggle("通知を出す", q.s.notifyOn) { v -> Repo.setSettings { it.copy(notifyOn = v) }; Notifier.schedule(ctx) }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

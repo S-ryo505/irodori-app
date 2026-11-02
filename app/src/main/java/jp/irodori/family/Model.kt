@@ -37,6 +37,8 @@ data class Event(
     val comments: List<Comment> = emptyList(),
     /** 個別のお知らせ: 開始の何分前か(0=開始時, 1440=前日)。終日は当日8時が基準 */
     val remind: List<Int> = emptyList(),
+    /** この予定のマーク(絵文字)。空ならマークのルールで自動 */
+    val icon: String = "",
     val seriesId: String = "",
     val edited: Boolean = false,
     val sample: Boolean = false,
@@ -125,6 +127,28 @@ data class AppData(
     val todos: List<Todo> = emptyList(),
     val shop: List<ShopItem> = emptyList(),
     val wishes: List<Wish> = emptyList(),
+    val days: List<DayMark> = emptyList(),
+)
+
+/** 大事な日の背景色(家族で共有)。id は日付 yyyy-MM-dd */
+@Serializable
+data class DayMark(val id: String, val color: String = "", val label: String = "", val updatedAt: Long = 0, val deleted: Boolean = false)
+
+/** 予定名に言葉が入っていたら、その絵をカレンダーに出す(「|」で区切ると複数の言葉) */
+@Serializable
+data class MarkRule(val word: String = "", val icon: String = "")
+
+val DEFAULT_MARKS = listOf(
+    MarkRule("誕生日", "🎂"), MarkRule("病院|小児科|健診", "🏥"), MarkRule("歯医者|歯科", "🦷"), MarkRule("遠足|校外学習", "🎒"),
+    MarkRule("運動会|体育祭", "🏃"), MarkRule("参観|懇談|面談", "🏫"), MarkRule("テスト|試験", "📝"), MarkRule("プール|水泳|スイミング", "🏊"),
+    MarkRule("ピアノ", "🎹"), MarkRule("サッカー", "⚽"), MarkRule("バレー", "🏐"), MarkRule("ダンス|チア", "💃"),
+    MarkRule("旅行", "✈️"), MarkRule("習字|書道", "🖌️"), MarkRule("塾", "📚"), MarkRule("ゴミ", "🗑️"),
+)
+val DAY_COLORS = listOf("#F4A6B8", "#F6CF6B", "#8FD3A8", "#8EC3EE", "#C3A8EC", "#F7B58A")
+val EMOJI_CHOICES = listOf(
+    "🍱", "🎂", "🏥", "🦷", "🎒", "🏃", "🏫", "📝", "🏊", "🎹", "⚽", "🏐", "💃", "🎨", "📚", "🖌️",
+    "✈️", "🚗", "🚃", "🏕️", "🎡", "🎤", "🎬", "🛒", "🍽️", "☕", "🎁", "💐", "⭐", "❤️", "⚠️", "📌",
+    "💊", "💇", "🗑️", "👔", "👟", "🧺", "🐶", "🎮",
 )
 
 /** やりたい・行きたいリスト(家族で共有) */
@@ -187,6 +211,11 @@ data class Settings(
     val widgetViewer: String = "all",
     /** 個別のお知らせを受け取る範囲: mine=自分に関係する予定 / all=全員 / off=受け取らない */
     val remindScope: String = "mine",
+    /** お弁当の日のマークと、その日の背景色(空なら色なし)。この端末だけ */
+    val bentoIcon: String = "🍱",
+    val bentoBg: String = "",
+    /** マークのルール(言葉→絵)。この端末だけ */
+    val marks: List<MarkRule> = DEFAULT_MARKS,
 )
 
 @Serializable
