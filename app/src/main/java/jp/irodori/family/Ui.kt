@@ -109,7 +109,7 @@ fun Avatar(m: Member?, size: Dp = 26.dp) {
     if (m == null) return
     val c = hexColor(m.color)
     Box(Modifier.size(size).clip(RoundedCornerShape(46, 54, 52, 48))
-        .background(Brush.radialGradient(listOf(c.copy(alpha = 0.6f), c), center = Offset.Unspecified)), contentAlignment = Alignment.Center) {
+        .background(c), contentAlignment = Alignment.Center) {
         T(m.name.take(1), (size.value * 0.46f).sp, Color.White, true)
     }
 }
@@ -207,7 +207,7 @@ fun EventRow(q: Q, e: Event, day: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun CheckRow(on: Boolean, text: String, sub: String, late: Boolean = false, onClick: () -> Unit) {
+fun CheckRow(on: Boolean, text: String, sub: String, late: Boolean = false, onDelete: (() -> Unit)? = null, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 9.dp, horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(24.dp).clip(RoundedCornerShape(8.dp)).background(if (on) P.teal else Color.Transparent)
             .border(2.dp, if (on) P.teal else P.sub.copy(alpha = 0.5f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
@@ -218,8 +218,12 @@ fun CheckRow(on: Boolean, text: String, sub: String, late: Boolean = false, onCl
             T(text, 14.5.sp, if (on) P.sub else P.ink, true, strike = on)
             if (sub.isNotBlank()) T(sub, 12.sp, if (late) P.rasp else P.sub, late)
         }
+        // 終わったものは自分で消せる
+        if (on && onDelete != null) Box(Modifier.clip(RoundedCornerShape(10.dp)).background(P.tintR).clickable(onClick = onDelete).padding(horizontal = 10.dp, vertical = 6.dp)) { T("削除", 12.sp, P.rasp, true) }
     }
 }
+
+fun deleteTodo(q: Q, x: Todo) { if (q.pt.any { it.id == x.id }) Repo.putPrivateTodo(x.copy(deleted = true)) else Repo.putTodo(x.copy(deleted = true)) }
 
 /** 予定に付いた写真(data:image/jpeg;base64,... 形式。Web版と共通) */
 @Composable

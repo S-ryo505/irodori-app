@@ -138,20 +138,33 @@ object Wx {
     }
 
     @SuppressLint("MissingPermission")
+    /** 位置が取れなかった理由(画面に出す) */
+    @Volatile var locErr = ""
     private suspend fun location(ctx: Context): Location? {
-        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null
+        locErr = ""
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) { locErr = "カゾスケに位置情報が許可されていません"; return null }
         val lm = ctx.getSystemService(LocationManager::class.java) ?: return null
+        if (Build.VERSION.SDK_INT >= 28 && !lm.isLocationEnabled) { locErr = "スマホの「位置情報」がオフです（画面上から下にスワイプ →「位置情報」をオン）"; return null }
         val last = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.PASSIVE_PROVIDER)
             .mapNotNull { p -> runCatching { lm.getLastKnownLocation(p) }.getOrNull() }.maxByOrNull { it.time }
         if (last != null && System.currentTimeMillis() - last.time < 3 * 3600_000L) return last
-        if (Build.VERSION.SDK_INT >= 30 && lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-            val cur = withTimeoutOrNull(10_000) {
-                suspendCancellableCoroutine<Location?> { cont ->
-                    lm.getCurrentLocation(LocationManager.NETWORK_PROVIDER, null, ctx.mainExecutor) { loc -> if (cont.isActive) cont.resume(loc) }
+        if (Build.VERSION.SDK_INT >= 30) {
+            // 使える方法を順に試す(fused → ネットワーク → GPS)
+            val providers = buildList {
+                if (Build.VERSION.SDK_INT >= 31) add(LocationManager.FUSED_PROVIDER)
+                add(LocationManager.NETWORK_PROVIDER); add(LocationManager.GPS_PROVIDER)
+            }.filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+            for (p in providers) {
+                val cur = withTimeoutOrNull(10_000) {
+                    suspendCancellableCoroutine<Location?> { cont ->
+                        runCatching { lm.getCurrentLocation(p, null, ctx.mainExecutor) { loc -> if (cont.isActive) cont.resume(loc) } }
+                            .onFailure { if (cont.isActive) cont.resume(null) }
+                    }
                 }
+                if (cur != null) return cur
             }
-            if (cur != null) return cur
         }
+        if (last == null) locErr = "現在地を取得できませんでした（屋内などで電波が弱い可能性）"
         return last
     }
 
@@ -178,7 +191,7 @@ object Wx {
                 if (!ok && s.locName.isNotBlank()) { lat = s.locLat; lon = s.locLon; place = s.locName; ok = true }
                 // ウィジェットの裏更新などで位置が取れないときは、前回の地点を使う
                 if (!ok && cur != null && (cur.lat != 0.0 || cur.lon != 0.0)) { lat = cur.lat; lon = cur.lon; place = cur.place; ok = true }
-                if (!ok) { Repo.wxError.value = "位置情報が使えません。設定 → 天気 で位置情報を許可するか、地名を選んでください"; return@withContext }
+                if (!ok) { Repo.wxError.value = (locErr.ifBlank { "位置情報が使えません" }) + "。設定 → 天気 で地名を選ぶこともできます"; return@withContext }
                 val txt = http("https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,weather_code" +
                     "&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m" +
                     "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max" +
@@ -392,4 +405,51 @@ object Speaker : TextToSpeech.OnInitListener {
         t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "irodori")
     }
     fun stop() { tts?.stop(); speaking.value = false }
+}
+
+/* ======================= ウィジェットから、アプリを開かずに話す ======================= */
+class SpeakService : android.app.Service(), TextToSpeech.OnInitListener {
+    private var tts: TextToSpeech? = null
+    private var text = ""
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    override fun onBind(intent: Intent?): android.os.IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel("speak", "キャラのお話し", NotificationManager.IMPORTANCE_LOW))
+        val n = NotificationCompat.Builder(this, "speak").setSmallIcon(R.drawable.ic_stat).setContentTitle("カゾスケがお話し中…").setSilent(true).build()
+        androidx.core.app.ServiceCompat.startForeground(this, 77, n,
+            if (Build.VERSION.SDK_INT >= 29) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0)
+        Repo.init(this)
+        val q = Repo.q().forWidget()
+        val tomorrow = intent?.getStringExtra("w") == "tomorrow"
+        text = q.talk(q.talkMember(), tomorrow)
+        tts?.stop()
+        if (tts == null) tts = TextToSpeech(applicationContext, this) else onInit(TextToSpeech.SUCCESS)
+        handler.removeCallbacksAndMessages(null)
+        handler.postDelayed({ stopSelf() }, 120_000)   // 念のため2分で止める
+        return START_NOT_STICKY
+    }
+
+    override fun onInit(status: Int) {
+        val t = tts ?: return
+        if (status != TextToSpeech.SUCCESS) { stopSelf(); return }
+        t.setLanguage(Locale.JAPANESE)
+        val s = Repo.settings.value
+        t.setSpeechRate(s.voiceRate); t.setPitch(s.voicePitch)
+        t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+            override fun onDone(utteranceId: String?) { handler.post { stopSelf() } }
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) { handler.post { stopSelf() } }
+        })
+        t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "widget")
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        tts?.stop(); tts?.shutdown(); tts = null
+        super.onDestroy()
+    }
 }

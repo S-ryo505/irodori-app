@@ -82,7 +82,8 @@ fun CalendarScreen(q: Q, mode: String, setMode: (String) -> Unit, cursor: String
     }
     if (mode == "day") {
         Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
-            seg(); Spacer(Modifier.height(8.dp))
+            seg()
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.End) { TodayChip { setCursor(initCursor(mode)) } }
             DayView(q, cursor, open, Modifier.weight(1f).swipe { setCursor(moveCursor(mode, cursor, it)) })
         }
         return
@@ -92,6 +93,7 @@ fun CalendarScreen(q: Q, mode: String, setMode: (String) -> Unit, cursor: String
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (mode == "week") { val st = weekStart(cursor); T("${mdShort(st)}（月）〜 ${mdShort(plusDays(st, 6))}（日）", 13.sp, bold = true) }
             Spacer(Modifier.weight(1f))
+            TodayChip { setCursor(initCursor(mode)) }
             T("文字", 12.sp, P.sub)
             listOf("小", "中", "大").forEachIndexed { i, n ->
                 Box(Modifier.clip(CircleShape).background(if (q.s.textSize == i) P.tintI else P.card).clickable { Repo.setSettings { it.copy(textSize = i) } }.padding(horizontal = 10.dp, vertical = 4.dp)) {
@@ -127,7 +129,7 @@ fun EvLabel(q: Q, e: Event, size: TextUnit, withTime: Boolean, onClick: (() -> U
     if (onClick != null) m = m.clickable(onClick = onClick)
     Column(m.padding(start = (3 * cols.size + 2).dp, end = 1.dp, top = 1.dp, bottom = 2.dp)) {
         if (withTime) T(if (e.allDay || e.start.isBlank()) "終日" else e.start.removePrefix("0"), size * 0.92f, P.sub)
-        T(q.iconOf(e) + e.title, size, P.ink, true)
+        T(e.title, size, P.ink, true)
     }
 }
 
@@ -225,7 +227,7 @@ fun DayListCard(q: Q, ds: String, open: (Sheet) -> Unit) {
         val td = q.d.todos.filter { q.todoVisible(it) && it.due == ds } + q.pt.filter { q.mineVisible(it) && it.due == ds }
         if (td.isNotEmpty()) {
             Spacer(Modifier.height(8.dp)); T("この日までのToDo", 12.sp, P.sub, true)
-            td.forEach { x -> CheckRow(x.done, x.text, q.todoSub(x)) { Repo.toggleTodo(x.id) } }
+            td.forEach { x -> CheckRow(x.done, x.text, q.todoSub(x), onDelete = { deleteTodo(q, x) }) { Repo.toggleTodo(x.id) } }
         }
     }
 }
@@ -308,3 +310,9 @@ fun newEvent(q: Q, ds: String, hour: Int? = null): Event = Event(
     end = hour?.let { "${minOf(23, it + 1).toString().padStart(2, '0')}:00" } ?: "",
     members = if (q.viewer != "all") listOf(q.viewer) else emptyList(),
 )
+
+/** 「今日」に戻る小さなボタン(文字の大きさと同じ列) */
+@Composable
+fun TodayChip(onClick: () -> Unit) {
+    Box(Modifier.clip(CircleShape).background(P.rasp).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 4.dp)) { T("今日", 12.sp, Color.White, true) }
+}

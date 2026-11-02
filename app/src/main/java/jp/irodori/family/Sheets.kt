@@ -235,7 +235,7 @@ fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
                 lessons.forEach { l ->
                     Box(Modifier.clip(CircleShape).background(P.card).clickable {
                         title = l.name; start = l.start; end = l.end; loc = l.location; outdoor = l.outdoor; cat = "lesson"; allDay = false
-                        mem.clear(); mem += l.member
+                        mem.clear(); mem += l.who()
                     }.padding(horizontal = 12.dp, vertical = 6.dp)) { T(l.name, 13.sp, bold = true) }
                 }
             }
@@ -308,7 +308,7 @@ fun LessonEditor(q: Q, l0: Lesson?, close: () -> Unit) {
     val ctx = LocalContext.current
     val l = l0 ?: Lesson(id = uid(), member = if (q.viewer != "all") q.viewer else q.members.firstOrNull()?.id ?: "")
     var name by remember { mutableStateOf(l.name) }
-    var member by remember { mutableStateOf(l.member) }
+    val who = remember { mutableStateListOf<String>().apply { addAll(l.who()) } }
     val days = remember { mutableStateListOf<Int>().apply { addAll(l.days) } }
     var start by remember { mutableStateOf(l.start) }
     var end by remember { mutableStateOf(l.end) }
@@ -321,8 +321,8 @@ fun LessonEditor(q: Q, l0: Lesson?, close: () -> Unit) {
     var armed by remember { mutableStateOf(false) }
     Title(if (l0 == null) "習い事を追加" else "習い事を編集")
     Field(name, { name = it }, "名前", placeholder = "例: ピアノ、スイミング、塾")
-    T("だれ", 12.sp, P.sub, true); Spacer(Modifier.height(4.dp))
-    MemberChips(q, setOf(member), { member = it })
+    T("だれ（複数OK：姉妹で同じ習い事など）", 12.sp, P.sub, true); Spacer(Modifier.height(4.dp))
+    MemberChips(q, who.toSet(), { id -> if (id in who) who.remove(id) else who += id })
     Spacer(Modifier.height(10.dp))
     T("曜日（複数OK）", 12.sp, P.sub, true)
     Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.padding(vertical = 6.dp)) {
@@ -350,7 +350,8 @@ fun LessonEditor(q: Q, l0: Lesson?, close: () -> Unit) {
         Btn("保存", P.rasp, Modifier.weight(2f)) {
             if (name.isBlank()) { err = "名前を入れてください"; return@Btn }
             if (days.isEmpty()) { err = "曜日を選んでください"; return@Btn }
-            val x = l.copy(name = name.trim(), member = member, days = days.sorted(), start = start, end = end, location = loc.trim(), outdoor = outdoor, auto = auto, skipHoliday = hol, remind = rem.sorted(), sample = false)
+            if (who.isEmpty()) { err = "だれの習い事か選んでください（複数OK）"; return@Btn }
+            val x = l.copy(name = name.trim(), member = who.first(), members = who.toList(), days = days.sorted(), start = start, end = end, location = loc.trim(), outdoor = outdoor, auto = auto, skipHoliday = hol, remind = rem.sorted(), sample = false)
             Repo.putLesson(x); Repo.syncSeries(x); close()
         }
     }
@@ -396,7 +397,10 @@ fun ShopList(q: Q) {
     var add by remember { mutableStateOf("") }
     val rows = q.shopRows(t)
     if (rows.isEmpty()) T("今回買うものはありません", 13.5.sp, P.sub)
-    rows.forEach { r -> CheckRow(r.on, r.name, r.sub) { Repo.toggleShop(r.kind, r.id) } }
+    rows.forEach { r ->
+        val del: (() -> Unit)? = if (r.kind == "shop") ({ q.d.shop.firstOrNull { it.id == r.id }?.let { Repo.putShop(it.copy(deleted = true)) } }) else null
+        CheckRow(r.on, r.name, r.sub, onDelete = del) { Repo.toggleShop(r.kind, r.id) }
+    }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Field(add, { add = it }, "ほかに買うもの（例: 牛乳）", Modifier.weight(1f)); Spacer(Modifier.width(6.dp))
         Btn("追加", small = true) { if (add.isNotBlank()) { Repo.putShop(ShopItem(uid(), add.trim(), by = if (q.viewer != "all") q.viewer else "")); add = "" } }

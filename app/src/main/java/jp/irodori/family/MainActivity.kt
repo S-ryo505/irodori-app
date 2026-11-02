@@ -144,7 +144,7 @@ fun App(act: MainActivity) {
                 val v = q.member(q.viewer)
                 Row(Modifier.clip(CircleShape).background(P.card).clickable { sheet = Sheet.Viewer }.padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (v != null) { Avatar(v, 28.dp); Spacer(Modifier.width(6.dp)); T(v.name, 13.sp, bold = true) }
-                    else { q.members.take(3).forEach { Avatar(it, 24.dp) }; Spacer(Modifier.width(6.dp)); T("全員", 13.sp, bold = true) }
+                    else { q.members.forEach { Avatar(it, 22.dp); Spacer(Modifier.width(2.dp)) }; Spacer(Modifier.width(4.dp)); T("全員", 12.sp, bold = true) }
                 }
             }
         },

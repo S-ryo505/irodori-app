@@ -84,7 +84,18 @@ fun SettingsScreen(q: Q) {
         }
     }
     val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> msg = if (ok) "通知を許可しました" else "通知が許可されませんでした" }
-    val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) scope.launch { Wx.refresh(ctx, true) } else msg = "位置情報が許可されませんでした。地名で選べます" }
+    var wxMsg by remember { mutableStateOf("") }
+    var locDenied by remember { mutableStateOf(false) }
+    fun refreshWx() = scope.launch {
+        wxMsg = "現在地を確認中…"
+        Wx.refresh(ctx, true)
+        val e = Repo.wxError.value
+        wxMsg = if (e.isBlank()) "✓ ${Repo.weather.value?.place ?: ""} の天気に更新しました（" + java.text.SimpleDateFormat("H:mm", java.util.Locale.JAPAN).format(java.util.Date()) + "）" else e
+    }
+    val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        locDenied = !ok
+        if (ok) refreshWx() else wxMsg = "位置情報が許可されていません。前に「許可しない」を選んでいると、このボタンでは確認が出ません。下の「Androidの設定を開く」→「権限」→「位置情報」→「アプリの使用中のみ許可」にしてください。"
+    }
     val gsJson = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> if (u != null) readText(ctx, u)?.let { t -> Repo.setSettings { it.copy(fbConfig = t) }; msg = "読み込みました。「接続する」を押してください" } }
     val exportDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { u ->
         if (u != null) runCatching { ctx.contentResolver.openOutputStream(u)?.use { it.write(Repo.exportJson().toByteArray()) }; msg = "書き出しました" }
@@ -156,40 +167,40 @@ fun SettingsScreen(q: Q) {
 
         CardBox {
             var pickFor by remember { mutableStateOf<Int?>(null) }   // -1=お弁当, 0..=ルールの番号
-            SecH("マーク（絵）と日の色", "この端末")
-            T("カレンダーとウィジェットの日付の横に出る絵です。予定名に言葉が入っていると、その絵が出ます（「|」で区切ると複数の言葉）。予定ごとに選ぶこともできます（予定の編集画面）。", 12.sp, P.sub)
+            SecH("マーク（絵）と日の色", "家族で共有")
+            T("家族みんなの画面に同じ設定が反映されます（共有をつないでいる場合）。カレンダーとウィジェットの日付の横に出る絵です。予定名に言葉が入っていると、その絵が出ます（「|」で区切ると複数の言葉）。予定ごとに選ぶこともできます（予定の編集画面）。", 12.sp, P.sub)
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 T("お弁当の日", 14.sp, bold = true, modifier = Modifier.weight(1f))
-                Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(P.card2).clickable { pickFor = if (pickFor == -1) null else -1 }, contentAlignment = Alignment.Center) { T(q.s.bentoIcon.ifBlank { "🍱" }, 22.sp) }
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(P.card2).clickable { pickFor = if (pickFor == -1) null else -1 }, contentAlignment = Alignment.Center) { T(q.fp.bentoIcon.ifBlank { "🍱" }, 22.sp) }
             }
-            if (pickFor == -1) EmojiPicker(q.s.bentoIcon, allowNone = false) { e -> Repo.setSettings { it.copy(bentoIcon = e) }; pickFor = null }
+            if (pickFor == -1) EmojiPicker(q.fp.bentoIcon, allowNone = false) { e -> Repo.putFamilyPrefs(q.fp.copy(bentoIcon = e)); pickFor = null }
             T("お弁当の日の背景色", 12.sp, P.sub, true, Modifier.padding(top = 8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
-                Box(Modifier.size(30.dp).clip(CircleShape).background(P.card2).border(2.dp, if (q.s.bentoBg.isBlank()) P.ink else P.line, CircleShape)
-                    .clickable { Repo.setSettings { it.copy(bentoBg = "") } }, contentAlignment = Alignment.Center) { T("なし", 9.sp, P.sub, true) }
+                Box(Modifier.size(30.dp).clip(CircleShape).background(P.card2).border(2.dp, if (q.fp.bentoBg.isBlank()) P.ink else P.line, CircleShape)
+                    .clickable { Repo.putFamilyPrefs(q.fp.copy(bentoBg = "")) }, contentAlignment = Alignment.Center) { T("なし", 9.sp, P.sub, true) }
                 DAY_COLORS.forEach { c ->
-                    Box(Modifier.size(30.dp).clip(CircleShape).background(hexColor(c)).border(2.5.dp, if (q.s.bentoBg == c) P.ink else Color.Transparent, CircleShape)
-                        .clickable { Repo.setSettings { it.copy(bentoBg = c) } })
+                    Box(Modifier.size(30.dp).clip(CircleShape).background(hexColor(c)).border(2.5.dp, if (q.fp.bentoBg == c) P.ink else Color.Transparent, CircleShape)
+                        .clickable { Repo.putFamilyPrefs(q.fp.copy(bentoBg = c)) })
                 }
             }
             T("大事な日の色は、カレンダーで日付を2回タップ →「この日の色」で付けられます（家族で共有）。", 12.sp, P.sub)
             Spacer(Modifier.height(10.dp))
             T("言葉 → 絵", 12.sp, P.sub, true)
-            q.s.marks.forEachIndexed { i, r ->
+            q.fp.marks.forEachIndexed { i, r ->
                 var word by remember(i, r.word) { mutableStateOf(r.word) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(P.card2).clickable { pickFor = if (pickFor == i) null else i }, contentAlignment = Alignment.Center) { T(r.icon.ifBlank { "？" }, 22.sp) }
                     Spacer(Modifier.width(8.dp))
                     Field(word, { word = it }, "言葉", Modifier.weight(1f))
-                    if (word != r.word) { Spacer(Modifier.width(4.dp)); Btn("保存", small = true) { Repo.setSettings { st -> st.copy(marks = st.marks.toMutableList().also { it[i] = r.copy(word = word.trim()) }) } } }
-                    else { Spacer(Modifier.width(4.dp)); T("－", 18.sp, P.rasp, true, Modifier.clickable { Repo.setSettings { st -> st.copy(marks = st.marks.filterIndexed { k, _ -> k != i }) } }.padding(8.dp)) }
+                    if (word != r.word) { Spacer(Modifier.width(4.dp)); Btn("保存", small = true) { Repo.putFamilyPrefs(q.fp.copy(marks = q.fp.marks.toMutableList().also { it[i] = r.copy(word = word.trim()) })) } }
+                    else { Spacer(Modifier.width(4.dp)); T("－", 18.sp, P.rasp, true, Modifier.clickable { Repo.putFamilyPrefs(q.fp.copy(marks = q.fp.marks.filterIndexed { k, _ -> k != i })) }.padding(8.dp)) }
                 }
-                if (pickFor == i) EmojiPicker(r.icon, allowNone = false) { e -> Repo.setSettings { st -> st.copy(marks = st.marks.toMutableList().also { it[i] = r.copy(icon = e) }) }; pickFor = null }
+                if (pickFor == i) EmojiPicker(r.icon, allowNone = false) { e -> Repo.putFamilyPrefs(q.fp.copy(marks = q.fp.marks.toMutableList().also { it[i] = r.copy(icon = e) })); pickFor = null }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
-                GhostBtn("＋ ルールを追加") { Repo.setSettings { it.copy(marks = it.marks + MarkRule("", "⭐")) } }
-                GhostBtn("最初の設定に戻す") { Repo.setSettings { it.copy(marks = DEFAULT_MARKS) } }
+                GhostBtn("＋ ルールを追加") { Repo.putFamilyPrefs(q.fp.copy(marks = q.fp.marks + MarkRule("", "⭐"))) }
+                GhostBtn("最初の設定に戻す") { Repo.putFamilyPrefs(q.fp.copy(marks = DEFAULT_MARKS)) }
             }
         }
 
@@ -241,9 +252,17 @@ fun SettingsScreen(q: Q) {
             }
             if (q.s.locName.isNotBlank()) T("固定の地点: ${q.s.locName}（現在地が取れない時に使用）", 12.sp, P.sub)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                GhostBtn("今すぐ更新") { scope.launch { Wx.refresh(ctx, true) } }
-                if (q.s.useGps) GhostBtn("位置情報を許可") { locPerm.launch(Manifest.permission.ACCESS_COARSE_LOCATION) }
+                GhostBtn("今すぐ更新") { refreshWx() }
+                if (q.s.useGps) GhostBtn("現在地で更新") {
+                    if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) refreshWx()
+                    else locPerm.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                }
             }
+            if (wxMsg.isNotBlank()) T(wxMsg, 12.5.sp, if (wxMsg.startsWith("✓")) P.teal else if (wxMsg.endsWith("…")) P.sub else P.rasp, true, Modifier.padding(top = 6.dp))
+            if (locDenied) GhostBtn("Androidの設定を開く", Modifier.padding(top = 4.dp)) {
+                runCatching { ctx.startActivity(Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))) }
+            }
+            T("位置情報: " + if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) "許可されています" else "まだ許可されていません", 12.sp, P.sub)
             T("天気データ: Open-Meteo（無料・キー不要）。アドバイスは降水確率・風速・気温によるルール判定です。", 12.sp, P.sub)
         }
 

@@ -20,17 +20,18 @@ class Q(val d: AppData, val s: Settings, val w: Weather?, val pt: List<Todo> = e
     fun names(e: Event): String = e.members.mapNotNull { member(it)?.name }.joinToString("・")
     fun timeTxt(e: Event): String = if (e.allDay || e.start.isBlank()) "終日" else e.start + if (e.end.isNotBlank()) "–" + e.end else ""
 
-    // ---------- マーク・日の色 ----------
+    // ---------- マーク・日の色(家族で共有。共有データが無ければこの端末の設定) ----------
+    val fp: FamilyPrefs get() = d.fprefs.firstOrNull { !it.deleted } ?: FamilyPrefs(bentoIcon = s.bentoIcon, bentoBg = s.bentoBg, marks = upgradeMarks(s.marks))
     fun iconOf(e: Event): String = e.icon.ifBlank {
-        s.marks.firstOrNull { r -> r.icon.isNotBlank() && r.word.split("|", "｜").any { w -> w.isNotBlank() && e.title.contains(w.trim()) } }?.icon ?: ""
+        fp.marks.firstOrNull { r -> r.icon.isNotBlank() && r.word.split("|", "｜").any { w -> w.isNotBlank() && e.title.contains(w.trim()) } }?.icon ?: ""
     }
     fun isBento(day: String): Boolean = lunchInfo(day).any { it.st == "b" }
     /** その日のマーク(お弁当＋予定の絵、重複なし、最大 max 個) */
     fun dayIcons(day: String, max: Int = 3): List<String> =
-        ((if (isBento(day)) listOf(s.bentoIcon.ifBlank { "🍱" }) else emptyList()) + eventsOn(day).map { iconOf(it) }.filter { it.isNotBlank() }).distinct().take(max)
+        ((if (isBento(day)) listOf(fp.bentoIcon.ifBlank { "🍱" }) else emptyList()) + eventsOn(day).map { iconOf(it) }.filter { it.isNotBlank() }).distinct().take(max)
     fun dayMark(day: String): DayMark? = d.days.firstOrNull { it.id == day && !it.deleted && it.color.isNotBlank() }
     /** その日の背景色: 手で付けた色 → お弁当の日の色 の順 */
-    fun dayBg(day: String): String? = dayMark(day)?.color ?: if (s.bentoBg.isNotBlank() && isBento(day)) s.bentoBg else null
+    fun dayBg(day: String): String? = dayMark(day)?.color ?: if (fp.bentoBg.isNotBlank() && isBento(day)) fp.bentoBg else null
 
     // ---------- 給食 ----------
     fun lunchOf(mid: String): Lunch? = d.lunch.firstOrNull { it.id == mid && !it.deleted }

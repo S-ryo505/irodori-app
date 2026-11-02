@@ -52,6 +52,8 @@ data class Lesson(
     val id: String,
     val name: String = "",
     val member: String = "",
+    /** 複数人で同じ習い事(例: 姉妹でチアダンス) */
+    val members: List<String> = emptyList(),
     val days: List<Int> = emptyList(),
     val start: String = "16:00",
     val end: String = "17:00",
@@ -128,7 +130,27 @@ data class AppData(
     val shop: List<ShopItem> = emptyList(),
     val wishes: List<Wish> = emptyList(),
     val days: List<DayMark> = emptyList(),
+    val fprefs: List<FamilyPrefs> = emptyList(),
 )
+
+/** 家族で共有する見た目の設定(マークの絵・お弁当の日の色) */
+@Serializable
+data class FamilyPrefs(
+    val id: String = "family",
+    val bentoIcon: String = "🍱",
+    val bentoBg: String = "",
+    val marks: List<MarkRule> = DEFAULT_MARKS,
+    val updatedAt: Long = 0,
+    val deleted: Boolean = false,
+)
+/** 古い「ダンス|チア」をチア(📣)とダンス(💃)に分け、卓球(🏓)を足す */
+fun upgradeMarks(m: List<MarkRule>): List<MarkRule> {
+    val out = mutableListOf<MarkRule>()
+    m.forEach { r -> if (r.word == "ダンス|チア") { out += MarkRule("チア", "📣"); out += MarkRule("ダンス", "💃") } else out += r }
+    if (out.none { it.word.contains("卓球") }) out += MarkRule("卓球", "🏓")
+    return out
+}
+fun Lesson.who(): List<String> = members.ifEmpty { listOfNotNull(member.ifBlank { null }) }
 
 /** 大事な日の背景色(家族で共有)。id は日付 yyyy-MM-dd */
 @Serializable
@@ -141,12 +163,12 @@ data class MarkRule(val word: String = "", val icon: String = "")
 val DEFAULT_MARKS = listOf(
     MarkRule("誕生日", "🎂"), MarkRule("病院|小児科|健診", "🏥"), MarkRule("歯医者|歯科", "🦷"), MarkRule("遠足|校外学習", "🎒"),
     MarkRule("運動会|体育祭", "🏃"), MarkRule("参観|懇談|面談", "🏫"), MarkRule("テスト|試験", "📝"), MarkRule("プール|水泳|スイミング", "🏊"),
-    MarkRule("ピアノ", "🎹"), MarkRule("サッカー", "⚽"), MarkRule("バレー", "🏐"), MarkRule("ダンス|チア", "💃"),
+    MarkRule("ピアノ", "🎹"), MarkRule("サッカー", "⚽"), MarkRule("バレー", "🏐"), MarkRule("チア", "📣"), MarkRule("ダンス", "💃"), MarkRule("卓球", "🏓"),
     MarkRule("旅行", "✈️"), MarkRule("習字|書道", "🖌️"), MarkRule("塾", "📚"), MarkRule("ゴミ", "🗑️"),
 )
 val DAY_COLORS = listOf("#F4A6B8", "#F6CF6B", "#8FD3A8", "#8EC3EE", "#C3A8EC", "#F7B58A")
 val EMOJI_CHOICES = listOf(
-    "🍱", "🎂", "🏥", "🦷", "🎒", "🏃", "🏫", "📝", "🏊", "🎹", "⚽", "🏐", "💃", "🎨", "📚", "🖌️",
+    "🍱", "🎂", "🏥", "🦷", "🎒", "🏃", "🏫", "📝", "🏊", "🎹", "⚽", "🏐", "🏓", "📣", "💃", "🎀", "🎨", "📚", "🖌️",
     "✈️", "🚗", "🚃", "🏕️", "🎡", "🎤", "🎬", "🛒", "🍽️", "☕", "🎁", "💐", "⭐", "❤️", "⚠️", "📌",
     "💊", "💇", "🗑️", "👔", "👟", "🧺", "🐶", "🎮",
 )
