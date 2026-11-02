@@ -213,20 +213,22 @@ object Wx {
 /* ======================= 通知(朝:きょう / 夜:あした) ======================= */
 object Notifier {
     private const val CH = "daily"
+    const val CH_REMIND = "remind"
     fun channel(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CH, "きょう・あしたの予定", NotificationManager.IMPORTANCE_DEFAULT))
+        nm.createNotificationChannel(NotificationChannel(CH_REMIND, "予定ごとのお知らせ", NotificationManager.IMPORTANCE_HIGH))
     }
     fun canPost(ctx: Context) = Build.VERSION.SDK_INT < 33 ||
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     @SuppressLint("MissingPermission")
-    fun show(ctx: Context, title: String, body: String, id: Int) {
+    fun show(ctx: Context, title: String, body: String, id: Int, ch: String = CH) {
         channel(ctx)
         if (!canPost(ctx)) return
         val pi = PendingIntent.getActivity(ctx, id, Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val n = NotificationCompat.Builder(ctx, CH)
+        val n = NotificationCompat.Builder(ctx, ch)
             .setSmallIcon(R.drawable.ic_stat)
             .setColor(0xFFE98D4D.toInt())
             .setContentTitle(title)
@@ -280,10 +282,14 @@ class AlarmReceiver : BroadcastReceiver() {
         val pending = goAsync()
         Repo.scope.launch {
             try {
-                Wx.refresh(ctx, false)
-                Notifier.fire(ctx, intent.getStringExtra("kind") ?: "today")
-                Notifier.schedule(ctx)
-                Widgets.refreshNow(ctx)
+                val kind = intent.getStringExtra("kind") ?: "today"
+                if (kind == "remind") Reminders.fire(ctx)
+                else {
+                    Wx.refresh(ctx, false)
+                    Notifier.fire(ctx, kind)
+                    Notifier.schedule(ctx)
+                    Widgets.refreshNow(ctx)
+                }
             } finally { pending.finish() }
         }
     }
@@ -293,6 +299,57 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         Repo.init(ctx)
         Notifier.schedule(ctx)
+        Reminders.schedule(ctx)
+    }
+}
+
+/* ======================= 予定ごとのお知らせ(1時間前など) =======================
+ * 次に来るお知らせ1件だけをアラームに予約し、鳴ったら「前回から今まで」の分をまとめて出して次を予約する */
+object Reminders {
+    data class R(val at: Long, val e: Event, val m: Int)
+    private fun f(ctx: Context) = java.io.File(ctx.filesDir, "remind_state.txt")
+    private fun lastCheck(ctx: Context): Long = runCatching { f(ctx).readText().trim().toLong() }.getOrDefault(System.currentTimeMillis() - 60_000)
+
+    fun list(q: Q, from: Long, to: Long): List<R> {
+        if (q.s.remindScope == "off") return emptyList()
+        val today = java.time.LocalDate.now(); val zone = ZoneId.systemDefault()
+        val out = mutableListOf<R>()
+        q.d.events.filter { !it.deleted && it.remind.isNotEmpty() && (q.s.remindScope == "all" || q.pass(it)) }.forEach { e ->
+            val d = runCatching { parseD(e.date) }.getOrNull() ?: return@forEach
+            if (d.isBefore(today.minusDays(2)) || d.isAfter(today.plusDays(10))) return@forEach
+            val baseMin = if (e.allDay || e.start.isBlank()) 8 * 60 else (toMin(e.start) ?: return@forEach)
+            val base = d.atStartOfDay(zone).toInstant().toEpochMilli() + baseMin * 60_000L
+            e.remind.forEach { m -> val at = base - m * 60_000L; if (at > from && at <= to) out += R(at, e, m) }
+        }
+        return out.sortedBy { it.at }
+    }
+
+    fun schedule(ctx: Context) {
+        val am = ctx.getSystemService(AlarmManager::class.java) ?: return
+        val pi = PendingIntent.getBroadcast(ctx, 3, Intent(ctx, AlarmReceiver::class.java).putExtra("kind", "remind"),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        am.cancel(pi)
+        if (!f(ctx).exists()) runCatching { f(ctx).writeText(System.currentTimeMillis().toString()) }
+        val now = System.currentTimeMillis()
+        val next = list(Repo.q(), now, now + 11L * 86_400_000).firstOrNull() ?: return
+        val exact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+        try { if (exact) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next.at, pi) else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next.at, pi) }
+        catch (e: SecurityException) { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next.at, pi) }
+    }
+
+    fun fire(ctx: Context) {
+        val now = System.currentTimeMillis()
+        val from = lastCheck(ctx).coerceAtLeast(now - 6 * 3600_000L)
+        val q = Repo.q()
+        list(q, from, now + 30_000).forEach { r ->
+            val e = r.e
+            val head = when (r.m) { 0 -> "まもなく"; 1440 -> "あした"; else -> remindLabel(r.m).replace("前", "後") }
+            val body = listOf("${md(e.date)} ${q.timeTxt(e)}", e.location, q.names(e)).filter { it.isNotBlank() }.joinToString("　") +
+                if (e.memo.isNotBlank()) "\n" + e.memo else ""
+            Notifier.show(ctx, "⏰ $head：${e.title}", body, (e.id + r.m).hashCode(), Notifier.CH_REMIND)
+        }
+        runCatching { f(ctx).writeText((now + 30_000).toString()) }
+        schedule(ctx)
     }
 }
 

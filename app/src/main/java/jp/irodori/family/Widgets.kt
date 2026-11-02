@@ -96,7 +96,7 @@ private val openApp get() = actionStartActivity<MainActivity>()
 class TodayWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         Repo.init(context)
-        val q = Repo.q()
+        val q = Repo.q().forWidget()
         val mid = q.talkMember()
         val f = File(context.filesDir, "char_img_${mid}.png")
         val bmp = if (f.exists()) runCatching { BitmapFactory.decodeFile(f.absolutePath) }.getOrNull() else null
@@ -134,7 +134,8 @@ private fun TodayContent(q: Q, chara: ImageProvider) {
                 }
             } else Text("天気: アプリを開いて取得", style = ts(11, WC.sub))
         }
-        Spacer(GlanceModifier.height(6.dp))
+        WhoChips(q)
+        Spacer(GlanceModifier.height(4.dp))
         LazyColumn(GlanceModifier.defaultWeight()) {
             if (evs.isEmpty()) item { Text("きょうの予定はありません", style = ts(13, WC.sub)) }
             items(evs, itemId = { it.id.hashCode().toLong() }) { e ->
@@ -173,7 +174,7 @@ class WeekWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         Repo.init(context)
         withTimeoutOrNull(12_000) { Wx.refresh(context, false) }
-        val q = Repo.q()
+        val q = Repo.q().forWidget()
         provideContent { WeekContent(q) }
     }
 }
@@ -189,7 +190,11 @@ fun weekStart(ds: String): String {
 private fun WeekContent(q: Q) {
     val st = weekStart(todayStr()); val t = todayStr()
     Column(GlanceModifier.fillMaxSize().background(WC.bg).cornerRadius(22.dp).padding(8.dp).clickable(openApp)) {
-        Text("${mdShort(st)}(月) 〜 ${mdShort(plusDays(st, 6))}(日)", style = ts(12, WC.sub, true), modifier = GlanceModifier.padding(start = 4.dp, bottom = 4.dp))
+        Row(GlanceModifier.fillMaxWidth().padding(bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("${mdShort(st)}〜${mdShort(plusDays(st, 6))}", style = ts(12, WC.sub, true), modifier = GlanceModifier.padding(start = 4.dp))
+            Spacer(GlanceModifier.defaultWeight())
+            WhoChips(q)
+        }
         Row(GlanceModifier.fillMaxWidth().defaultWeight()) {
             for (i in 0 until 7) {
                 val ds = plusDays(st, i.toLong())
@@ -237,7 +242,7 @@ class MonthWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         Repo.init(context)
         withTimeoutOrNull(12_000) { Wx.refresh(context, false) }
-        val q = Repo.q()
+        val q = Repo.q().forWidget()
         provideContent { MonthContent(q) }
     }
 }
@@ -250,7 +255,11 @@ private fun MonthContent(q: Q) {
     val weeks = (dow(first) + now.lengthOfMonth() + 6) / 7
     val t = todayStr()
     Column(GlanceModifier.fillMaxSize().background(WC.bg).cornerRadius(22.dp).padding(6.dp).clickable(openApp)) {
-        Text("${now.year}年${now.monthValue}月", style = ts(13, WC.ink, true), modifier = GlanceModifier.padding(start = 4.dp, bottom = 2.dp))
+        Row(GlanceModifier.fillMaxWidth().padding(bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("${now.year}年${now.monthValue}月", style = ts(13, WC.ink, true), modifier = GlanceModifier.padding(start = 4.dp))
+            Spacer(GlanceModifier.defaultWeight())
+            WhoChips(q)
+        }
         Row(GlanceModifier.fillMaxWidth()) {
             for (i in 0 until 7) Text(DAY[i], style = ts(9, if (i == 0) WC.hol else if (i == 6) WC.sat else WC.sub, true), modifier = GlanceModifier.defaultWeight())
         }
@@ -284,6 +293,40 @@ class ListWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWid
 
 private val KEY_ID = ActionParameters.Key<String>("id")
 private val KEY_KIND = ActionParameters.Key<String>("kind")
+
+/* ---------- ウィジェット上の「だれの予定」切り替え(丸をタップ) ---------- */
+private val KEY_V = ActionParameters.Key<String>("v")
+/** ウィジェット用の「表示する人」を使った計算(アプリ側の「見る人」とは別) */
+fun Q.forWidget(): Q = Q(d, s.copy(viewer = s.widgetViewer), w, pt)
+
+class ViewerAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        Repo.init(context)
+        val v = parameters[KEY_V] ?: "all"
+        Repo.setSettings { it.copy(widgetViewer = if (it.widgetViewer == v) "all" else v) }
+        Widgets.refreshNow(context)
+    }
+}
+
+@Composable
+private fun WhoChips(q: Q) {
+    val cur = q.viewer
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        WChip("全", "#7B7689", cur == "all", "all")
+        q.members.take(8).forEach { m -> WChip(m.name.take(1), m.color, cur == m.id, m.id) }
+    }
+}
+
+@Composable
+private fun WChip(label: String, hex: String, on: Boolean, v: String) {
+    Box(GlanceModifier.padding(horizontal = 1.5.dp)) {
+        Box(GlanceModifier.size(24.dp).cornerRadius(12.dp)
+            .background(ColorProvider(Color(parseColor(hex)).copy(alpha = if (on) 1f else 0.25f)))
+            .clickable(actionRunCallback<ViewerAction>(actionParametersOf(KEY_V to v))), contentAlignment = Alignment.Center) {
+            Text(label, style = ts(11, if (on) ColorProvider(Color.White) else WC.ink, true))
+        }
+    }
+}
 
 class ToggleAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {

@@ -78,7 +78,7 @@ private fun ScreenColumn(content: @Composable () -> Unit) {
 /* ============================ きょう ============================ */
 val HOME_SECTIONS = linkedMapOf(
     "today" to "きょうの予定と天気", "hourly" to "時間ごとの天気", "chara" to "キャラのお話し", "tomorrow" to "あしたの予定",
-    "shop" to "お買い物", "todo" to "ToDo", "week" to "この先1週間",
+    "shop" to "お買い物", "todo" to "ToDo", "week" to "この先1週間", "wish" to "やりたい・行きたい",
 )
 /** 表示する順番(この端末の設定)。新しく増えた項目は最後に表示 */
 fun homeVisible(s: Settings): List<String> {
@@ -153,6 +153,7 @@ fun TodayScreen(q: Q, open: (Sheet) -> Unit) {
                 "shop" -> ShopCard(q, open)
                 "todo" -> TodoCard(q, false)
                 "week" -> WeekCard(q, open)
+                "wish" -> WishHomeCard(q, open)
             }
         }
     }

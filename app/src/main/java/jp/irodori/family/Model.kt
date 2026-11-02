@@ -35,6 +35,8 @@ data class Event(
     val memo: String = "",
     val images: List<String> = emptyList(),
     val comments: List<Comment> = emptyList(),
+    /** 個別のお知らせ: 開始の何分前か(0=開始時, 1440=前日)。終日は当日8時が基準 */
+    val remind: List<Int> = emptyList(),
     val seriesId: String = "",
     val edited: Boolean = false,
     val sample: Boolean = false,
@@ -55,6 +57,7 @@ data class Lesson(
     val outdoor: Boolean = false,
     val auto: Boolean = true,
     val skipHoliday: Boolean = true,
+    val remind: List<Int> = emptyList(),
     val sample: Boolean = false,
     val updatedAt: Long = 0,
     val deleted: Boolean = false,
@@ -121,7 +124,29 @@ data class AppData(
     val lunch: List<Lunch> = emptyList(),
     val todos: List<Todo> = emptyList(),
     val shop: List<ShopItem> = emptyList(),
+    val wishes: List<Wish> = emptyList(),
 )
+
+/** やりたい・行きたいリスト(家族で共有) */
+@Serializable
+data class Wish(
+    val id: String,
+    val title: String = "",
+    val kind: String = "do",
+    val by: String = "",
+    val url: String = "",
+    val memo: String = "",
+    val images: List<String> = emptyList(),
+    val likes: List<String> = emptyList(),
+    val done: Boolean = false,
+    val doneAt: Long = 0,
+    val createdAt: Long = 0,
+    val updatedAt: Long = 0,
+    val deleted: Boolean = false,
+)
+val WISH_KINDS = linkedMapOf("do" to "やりたい", "go" to "行きたい", "eat" to "食べたい", "want" to "ほしい")
+val REMIND_OPTS = listOf(0 to "開始時", 10 to "10分前", 30 to "30分前", 60 to "1時間前", 120 to "2時間前", 1440 to "前日")
+fun remindLabel(m: Int): String = REMIND_OPTS.firstOrNull { it.first == m }?.second ?: if (m % 60 == 0) "${m / 60}時間前" else "${m}分前"
 
 fun defaultMembers() = listOf(
     Member("papa", "パパ", "#34408E"),
@@ -158,6 +183,10 @@ data class Settings(
     val homeHidden: List<String> = emptyList(),
     /** この先1週間: list=きょうから7日の一覧 / grid=月〜日の7列(ウィジェットと同じ) */
     val weekStyle: String = "list",
+    /** ウィジェットで表示する人(ウィジェット上の丸ボタンで切り替え) */
+    val widgetViewer: String = "all",
+    /** 個別のお知らせを受け取る範囲: mine=自分に関係する予定 / all=全員 / off=受け取らない */
+    val remindScope: String = "mine",
 )
 
 @Serializable

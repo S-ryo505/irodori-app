@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
@@ -55,6 +56,8 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     val speakReq = MutableStateFlow<String?>(null)
+    /** ほかのアプリの「共有」から届いたURL・文章・画像 */
+    val shareReq = MutableStateFlow<Wish?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,6 +65,7 @@ class MainActivity : ComponentActivity() {
         Speaker.init(this)
         Notifier.channel(this)
         Notifier.schedule(this)
+        Reminders.schedule(this)
         enableEdgeToEdge()
         handle(intent)
         setContent { IrodoriTheme { App(this) } }
@@ -78,7 +82,22 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { Wx.refresh(this@MainActivity, false) }
     }
 
-    private fun handle(i: Intent?) { i?.getStringExtra("speak")?.let { speakReq.value = it } }
+    private fun handle(i: Intent?) {
+        i?.getStringExtra("speak")?.let { speakReq.value = it }
+        if (i?.action == Intent.ACTION_SEND) {
+            val text = i.getStringExtra(Intent.EXTRA_TEXT) ?: ""
+            val subject = i.getStringExtra(Intent.EXTRA_SUBJECT) ?: ""
+            val url = firstUrl(text)
+            val rest = text.replace(url, "").trim()
+            @Suppress("DEPRECATION")
+            val stream: android.net.Uri? = if (android.os.Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java) else i.getParcelableExtra(Intent.EXTRA_STREAM)
+            val img = stream?.let { compressUri(this, it, 800, 65) }
+            val title = subject.ifBlank { rest.lineSequence().firstOrNull()?.take(40) ?: "" }
+            val viewer = Repo.settings.value.viewer
+            shareReq.value = Wish(uid(), title = title, url = url, memo = if (rest == title) "" else rest, images = listOfNotNull(img),
+                by = if (viewer != "all") viewer else "", kind = if (url.contains("maps") || url.contains("goo.gl")) "go" else "do", createdAt = System.currentTimeMillis())
+        }
+    }
 }
 
 @Composable
@@ -93,12 +112,15 @@ fun App(act: MainActivity) {
     var cursor by rememberSaveable { mutableStateOf(initCursor(mode)) }
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     val speakReq by act.speakReq.collectAsState()
+    val shareReq by act.shareReq.collectAsState()
+    LaunchedEffect(shareReq) { shareReq?.let { tab = "wish"; sheet = Sheet.WishEd(it, true); act.shareReq.value = null } }
 
     LaunchedEffect(speakReq) {
         speakReq?.let { tab = "home"; Speaker.speak(Repo.q().let { qq -> qq.talk(qq.talkMember(), it == "tomorrow") }); act.speakReq.value = null }
     }
     val open: (Sheet) -> Unit = { sh ->
-        if (sh is Sheet.GoDay) { cursor = sh.ds; mode = "day"; tab = "cal"; sheet = null } else sheet = sh
+        if (sh is Sheet.GoDay) { cursor = sh.ds; mode = "day"; tab = "cal"; sheet = null }
+        else if (sh is Sheet.GoTab) { tab = sh.tab; sheet = null } else sheet = sh
     }
 
     Scaffold(
@@ -116,7 +138,7 @@ fun App(act: MainActivity) {
                     androidx.compose.foundation.Image(painterResource(R.drawable.logo), null, Modifier.size(30.dp))
                     Spacer(Modifier.width(6.dp))
                     T("カゾスケ", 19.sp, bold = true); Spacer(Modifier.width(8.dp))
-                    T(mapOf("home" to "きょう", "imp" to "とりこみ", "list" to "リスト", "set" to "設定")[tab] ?: "", 13.sp, P.sub)
+                    T(mapOf("home" to "きょう", "wish" to "やりたい", "imp" to "とりこみ", "list" to "リスト", "set" to "設定")[tab] ?: "", 13.sp, P.sub)
                 }
                 Spacer(Modifier.weight(1f))
                 val v = q.member(q.viewer)
@@ -128,8 +150,8 @@ fun App(act: MainActivity) {
         },
         bottomBar = {
             NavigationBar(containerColor = P.card) {
-                listOf(Triple("cal", "カレンダー", Icons.Filled.DateRange), Triple("home", "きょう", Icons.Filled.Home), Triple("imp", "とりこみ", Icons.Filled.Create),
-                    Triple("list", "リスト", Icons.Filled.ShoppingCart), Triple("set", "設定", Icons.Filled.Settings)).forEach { (k, n, ic) ->
+                listOf(Triple("cal", "予定", Icons.Filled.DateRange), Triple("home", "きょう", Icons.Filled.Home), Triple("wish", "やりたい", Icons.Filled.Favorite),
+                    Triple("list", "リスト", Icons.Filled.ShoppingCart), Triple("imp", "とりこみ", Icons.Filled.Create), Triple("set", "設定", Icons.Filled.Settings)).forEach { (k, n, ic) ->
                     NavigationBarItem(selected = tab == k, onClick = { tab = k }, icon = { Icon(ic, n) }, label = { Text(n, fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(selectedIconColor = P.rasp, selectedTextColor = P.rasp, indicatorColor = P.tintR, unselectedIconColor = P.sub, unselectedTextColor = P.sub))
                 }
@@ -146,6 +168,7 @@ fun App(act: MainActivity) {
                 "home" -> TodayScreen(q, open)
                 "imp" -> ImportScreen(q, open)
                 "list" -> ListScreen(q, open)
+                "wish" -> WishScreen(q, open)
                 else -> SettingsScreen(q)
             }
         }

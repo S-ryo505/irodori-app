@@ -61,6 +61,8 @@ sealed class Sheet {
     data class StockEd(val s: Stock?) : Sheet()
     data object Shop : Sheet()
     data object Viewer : Sheet()
+    data class WishEd(val w: Wish, val isNew: Boolean) : Sheet()
+    data class GoTab(val tab: String) : Sheet()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -77,6 +79,8 @@ fun SheetHost(q: Q, sheet: Sheet, close: () -> Unit, open: (Sheet) -> Unit) {
                 is Sheet.StockEd -> StockEditor(q, sheet.s, close)
                 Sheet.Shop -> ShopSheet(q)
                 Sheet.Viewer -> ViewerSheet(q, close)
+                is Sheet.WishEd -> WishEditor(q, sheet.w, sheet.isNew, close)
+                is Sheet.GoTab -> {}
                 is Sheet.GoDay -> {}
             }
         }
@@ -159,6 +163,7 @@ fun EventView(q: Q, id: String, close: () -> Unit, open: (Sheet) -> Unit) {
         Pill(CATS[e.cat] ?: "予定", P.tintT, P.teal)
         if (isOutdoor(e)) Pill("屋外", P.tintO, P.orange)
         if (e.seriesId.isNotBlank()) Pill("くり返し", P.tintI, P.indigo)
+        e.remind.sorted().forEach { Pill("🔔" + remindLabel(it), P.tintO, P.orange) }
     }
     q.advice(e).forEach { AdviceLine(it, 0.dp) }
     if (e.memo.isNotBlank()) T(e.memo, 14.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(14.dp)).background(P.card2).padding(12.dp))
@@ -211,6 +216,7 @@ fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
     val mem = remember { mutableStateListOf<String>().apply { addAll(ev.members) } }
     val imgs = remember { mutableStateListOf<String>().apply { addAll(ev.images) } }
     var rep by remember { mutableStateOf(0) }
+    val rem = remember { mutableStateListOf<Int>().apply { addAll(ev.remind) } }
     var until by remember { mutableStateOf(plusDays(ev.date, 56)) }
     var err by remember { mutableStateOf("") }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(4)) { uris ->
@@ -260,6 +266,7 @@ fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
         }
         if (imgs.size < 4) GhostBtn("＋ 写真") { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
     }
+    RemindChips(rem)
     if (isNew) {
         T("くり返し", 12.sp, P.sub, true)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
@@ -275,7 +282,7 @@ fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
             val ad = allDay || start.isBlank()
             val base = ev.copy(title = title.trim(), date = date, allDay = ad, start = if (ad) "" else start, end = if (ad) "" else end,
                 endDate = if (ad && endDate > date) endDate else "", location = loc.trim(), cat = cat, outdoor = outdoor, memo = memo.trim(),
-                members = mem.toList(), images = imgs.toList(), edited = ev.seriesId.isNotBlank() || ev.edited)
+                members = mem.toList(), images = imgs.toList(), remind = rem.sorted(), edited = ev.seriesId.isNotBlank() || ev.edited)
             if (isNew && rep > 0) {
                 val sid = uid(); var d = date; var n = 0
                 while (d <= until && n < 60) { Repo.putEvent(base.copy(id = uid(), date = d, seriesId = sid, edited = false)); d = plusDays(d, rep.toLong()); n++ }
@@ -300,6 +307,7 @@ fun LessonEditor(q: Q, l0: Lesson?, close: () -> Unit) {
     var outdoor by remember { mutableStateOf(l.outdoor) }
     var auto by remember { mutableStateOf(l.auto) }
     var hol by remember { mutableStateOf(l.skipHoliday) }
+    val rem = remember { mutableStateListOf<Int>().apply { addAll(l.remind) } }
     var err by remember { mutableStateOf("") }
     var armed by remember { mutableStateOf(false) }
     Title(if (l0 == null) "習い事を追加" else "習い事を編集")
@@ -323,6 +331,7 @@ fun LessonEditor(q: Q, l0: Lesson?, close: () -> Unit) {
     Toggle("屋外（雨のアドバイスを強めに出す）", outdoor) { outdoor = it }
     Toggle("毎週自動で入れる（6週間先まで）", auto) { auto = it }
     Toggle("祝日は入れない", hol) { hol = it }
+    RemindChips(rem)
     T("時間や曜日を変えると、きょう以降の分（個別に編集していないもの）がまとめて変わります。1回だけ休みの日は、その日の予定を削除してください。", 12.sp, P.sub)
     if (err.isNotBlank()) T(err, 13.sp, P.rasp, true)
     Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -332,7 +341,7 @@ fun LessonEditor(q: Q, l0: Lesson?, close: () -> Unit) {
         Btn("保存", P.rasp, Modifier.weight(2f)) {
             if (name.isBlank()) { err = "名前を入れてください"; return@Btn }
             if (days.isEmpty()) { err = "曜日を選んでください"; return@Btn }
-            val x = l.copy(name = name.trim(), member = member, days = days.sorted(), start = start, end = end, location = loc.trim(), outdoor = outdoor, auto = auto, skipHoliday = hol, sample = false)
+            val x = l.copy(name = name.trim(), member = member, days = days.sorted(), start = start, end = end, location = loc.trim(), outdoor = outdoor, auto = auto, skipHoliday = hol, remind = rem.sorted(), sample = false)
             Repo.putLesson(x); Repo.syncSeries(x); close()
         }
     }
@@ -413,4 +422,19 @@ fun ViewerSheet(q: Q, close: () -> Unit) {
     Opt(q.viewer == "all", "全員の予定", null) { Repo.setSettings { it.copy(viewer = "all") }; close() }
     q.members.forEach { m -> Opt(q.viewer == m.id, "${m.name}の予定だけ", m) { Repo.setSettings { it.copy(viewer = m.id) }; close() } }
     T("この端末に保存されます。「家族みんな」の予定は誰を選んでも表示されます。", 12.sp, P.sub, modifier = Modifier.padding(top = 6.dp))
+}
+
+/** 個別のお知らせ(複数選べる) */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun RemindChips(rem: MutableList<Int>) {
+    T("🔔 この予定のお知らせ（複数OK）", 12.sp, P.sub, true, Modifier.padding(top = 4.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+        REMIND_OPTS.forEach { (m, n) ->
+            val on = m in rem
+            Box(Modifier.clip(CircleShape).background(if (on) P.tintO else P.card2).border(1.5.dp, if (on) P.orange else P.line, CircleShape)
+                .clickable { if (on) rem.remove(m) else rem.add(m) }.padding(horizontal = 12.dp, vertical = 6.dp)) { T(n, 13.sp, if (on) P.orange else P.ink, true) }
+        }
+    }
+    T("終日の予定は当日8時が基準です。お知らせは、その予定に関係する人のスマホに出ます（設定 → スマホ通知 で変更可）。", 11.5.sp, P.sub, modifier = Modifier.padding(bottom = 8.dp))
 }

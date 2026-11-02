@@ -168,6 +168,16 @@ fun SettingsScreen(q: Q) {
                 GhostBtn("いま通知を試す") { Notifier.fire(ctx, "today") }
             }
             T(if (Notifier.canPost(ctx)) "通知は許可されています" else "まだ通知が許可されていません", 12.sp, if (Notifier.canPost(ctx)) P.teal else P.rasp)
+            Spacer(Modifier.height(8.dp))
+            T("🔔 予定ごとのお知らせ（1時間前など）を受け取る範囲", 12.sp, P.sub, true)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+                listOf("mine" to "自分に関係する予定だけ", "all" to "全員の予定", "off" to "受け取らない").forEach { (k, n) ->
+                    Box(Modifier.clip(CircleShape).background(if (q.s.remindScope == k) P.tintO else P.card2).clickable { Repo.setSettings { it.copy(remindScope = k) }; Reminders.schedule(ctx) }.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                        T(n, 13.sp, if (q.s.remindScope == k) P.orange else P.ink, true)
+                    }
+                }
+            }
+            T("「自分」は上の「この端末で見る人」です（全員にしている端末は全員分が届きます）。お知らせの時間は、予定の追加・編集画面の「🔔 この予定のお知らせ」で選びます。習い事に付けると毎回付きます。", 12.sp, P.sub)
             T("届かない端末は、Androidの設定 → アプリ → カゾスケ → バッテリー を「制限なし」にしてください。", 12.sp, P.sub)
         }
 
