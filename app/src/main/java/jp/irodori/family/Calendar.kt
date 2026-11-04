@@ -105,7 +105,7 @@ fun CalendarScreen(q: Q, mode: String, setMode: (String) -> Unit, cursor: String
             }
         }
         val pick: (String) -> Unit = { ds -> if (ds == cursor) open(Sheet.Day(ds)) else setCursor(ds) }
-        if (mode == "month") MonthView(q, cursor, pick, Modifier.swipe { setCursor(moveCursor(mode, cursor, it)) })
+        if (mode == "month") MonthView(q, cursor, pick, Modifier.swipe { setCursor(moveCursor(mode, cursor, it)) }) { id -> open(Sheet.View(id)) }
         else WeekView(q, cursor, pick, open, Modifier.swipe { setCursor(moveCursor(mode, cursor, it)) })
         Legend(q)
         Spacer(Modifier.height(12.dp))
@@ -134,7 +134,7 @@ fun EvLabel(q: Q, e: Event, size: TextUnit, withTime: Boolean, onClick: (() -> U
 }
 
 @Composable
-fun MonthView(q: Q, cursor: String, onPick: (String) -> Unit, modifier: Modifier) {
+fun MonthView(q: Q, cursor: String, onPick: (String) -> Unit, modifier: Modifier, onOpen: (String) -> Unit = {}) {
     val c = parseD(cursor); val first = c.withDayOfMonth(1)
     val start = first.minusDays(dow(first).toLong())
     val weeks = (dow(first) + c.lengthOfMonth() + 6) / 7
@@ -144,33 +144,99 @@ fun MonthView(q: Q, cursor: String, onPick: (String) -> Unit, modifier: Modifier
             DAY.forEachIndexed { i, n -> T(n, 11.sp, if (i == 0) P.hol else if (i == 6) P.sat else P.sub, true, Modifier.weight(1f), center = true) }
         }
         for (w in 0 until weeks) {
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                for (i in 0 until 7) {
-                    val dd = start.plusDays((w * 7 + i).toLong()); val ds = dd.toString()
-                    val other = dd.monthValue != c.monthValue
-                    val evs = q.eventsOn(ds)
-                    val wx = q.wxDay(ds)
-                    val bento = q.lunchInfo(ds).filter { it.st == "b" }
-                    val dbg = q.dayBg(ds)
-                    Column(Modifier.weight(1f).fillMaxHeight().defaultMinSize(minHeight = 86.dp)
-                        .background(if (ds == cursor) P.tintO else if (other) P.card2 else P.card)
-                        .then(if (dbg != null) Modifier.background(hexColor(dbg).copy(alpha = 0.38f)) else Modifier)
-                        .border(if (ds == t) 2.5.dp else 0.5.dp, if (ds == t) P.rasp else P.line).clickable { onPick(ds) }.padding(2.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(22.dp).clip(CircleShape).background(if (ds == t) P.rasp else Color.Transparent), contentAlignment = Alignment.Center) {
-                                T("${dd.dayOfMonth}", 12.sp, if (ds == t) Color.White else dayCol(ds, P).copy(alpha = if (other) 0.45f else 1f), true)
-                            }
-                            Spacer(Modifier.weight(1f))
-                            if (wx != null) T(wxEmoji(wx.code), 11.sp)
-                        }
-                        val icons = q.dayIcons(ds)
-                        if (icons.isNotEmpty()) T(icons.joinToString(""), 14.sp)
-                        if (bento.isNotEmpty() && q.viewer == "all") T("弁当:" + bento.joinToString("") { it.m.name.take(1) }, 8.5.sp, P.rasp, true)
-                        q.dayMark(ds)?.label?.takeIf { it.isNotBlank() }?.let { T(it, 8.5.sp, P.ink, true) }
-                        evs.forEach { e -> Box(Modifier.fillMaxWidth().background(Color.Transparent).then(if (other) Modifier.padding(0.dp) else Modifier)) { EvLabel(q, e, fs(q), q.s.showTime) } }
+            val ws = start.plusDays((w * 7).toLong()).toString()
+            val segs = weekSegs(q, ws)
+            Box(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                // マスの背景(色・きょうの枠・タップ)
+                Row(Modifier.matchParentSize()) {
+                    for (i in 0 until 7) {
+                        val dd = start.plusDays((w * 7 + i).toLong()); val ds = dd.toString()
+                        val other = dd.monthValue != c.monthValue
+                        val dbg = q.dayBg(ds)
+                        Box(Modifier.weight(1f).fillMaxHeight()
+                            .background(if (ds == cursor) P.tintO else if (other) P.card2 else P.card)
+                            .then(if (dbg != null) Modifier.background(hexColor(dbg).copy(alpha = 0.38f)) else Modifier)
+                            .border(if (ds == t) 2.5.dp else 0.5.dp, if (ds == t) P.rasp else P.line).clickable { onPick(ds) })
                     }
                 }
+                Column(Modifier.fillMaxWidth().defaultMinSize(minHeight = 86.dp)) {
+                    // 日付・天気・マーク
+                    Row(Modifier.fillMaxWidth()) {
+                        for (i in 0 until 7) {
+                            val dd = start.plusDays((w * 7 + i).toLong()); val ds = dd.toString()
+                            val other = dd.monthValue != c.monthValue
+                            val wx = q.wxDay(ds)
+                            val bento = q.lunchInfo(ds).filter { it.st == "b" }
+                            Column(Modifier.weight(1f).padding(horizontal = 2.dp, vertical = 2.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(22.dp).clip(CircleShape).background(if (ds == t) P.rasp else Color.Transparent), contentAlignment = Alignment.Center) {
+                                        T("${dd.dayOfMonth}", 12.sp, if (ds == t) Color.White else dayCol(ds, P).copy(alpha = if (other) 0.45f else 1f), true)
+                                    }
+                                    Spacer(Modifier.weight(1f))
+                                    if (wx != null) T(wxEmoji(wx.code), 11.sp)
+                                }
+                                val icons = q.dayIcons(ds)
+                                if (icons.isNotEmpty()) T(icons.joinToString(""), 14.sp)
+                                if (bento.isNotEmpty() && q.viewer == "all") T("弁当:" + bento.joinToString("") { it.m.name.take(1) }, 8.5.sp, P.rasp, true)
+                                q.dayMark(ds)?.label?.takeIf { it.isNotBlank() }?.let { T(it, 8.5.sp, P.ink, true) }
+                            }
+                        }
+                    }
+                    // 2日以上の予定は日をまたぐバー
+                    SpanLanes(q, segs, fs(q)) { e -> onOpen(e.id) }
+                    // 1日の予定
+                    Row(Modifier.fillMaxWidth()) {
+                        for (i in 0 until 7) {
+                            val ds = start.plusDays((w * 7 + i).toLong()).toString()
+                            Column(Modifier.weight(1f).padding(horizontal = 2.dp)) {
+                                q.eventsOn(ds).filter { !isMulti(it) }.forEach { e -> EvLabel(q, e, fs(q), q.s.showTime) }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(3.dp))
+                }
             }
+        }
+    }
+}
+
+/* ---------- 2日以上の予定: 週ごとに段(レーン)を決めて、日をまたぐバーで描く ---------- */
+fun isMulti(e: Event): Boolean = e.endDate.isNotBlank() && e.endDate > e.date
+data class Seg(val e: Event, val c0: Int, val c1: Int, val lane: Int, val contL: Boolean, val contR: Boolean)
+
+/** ws=週の最初の日。その週にかかる複数日の予定を、重ならないように段に並べる */
+fun weekSegs(q: Q, ws: String): List<Seg> {
+    val we = plusDays(ws, 6)
+    val evs = q.d.events.filter { !it.deleted && isMulti(it) && q.pass(it) && it.date <= we && it.endDate >= ws }
+        .sortedWith(compareBy<Event>({ it.date }, { -daysBetween(it.date, it.endDate) }, { it.title }))
+    val laneEnd = mutableListOf<Int>()
+    return evs.map { e ->
+        val c0 = if (e.date < ws) 0 else daysBetween(ws, e.date).toInt()
+        val c1 = if (e.endDate > we) 6 else daysBetween(ws, e.endDate).toInt()
+        var l = laneEnd.indexOfFirst { it < c0 }
+        if (l < 0) { l = laneEnd.size; laneEnd += c1 } else laneEnd[l] = c1
+        Seg(e, c0, c1, l, (e.date < ws), (e.endDate > we))
+    }
+}
+
+@Composable
+fun SpanLanes(q: Q, segs: List<Seg>, size: TextUnit, onClick: (Event) -> Unit) {
+    val n = (segs.maxOfOrNull { it.lane } ?: -1) + 1
+    for (l in 0 until n) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+            var col = 0
+            segs.filter { it.lane == l }.sortedBy { it.c0 }.forEach { sg ->
+                if (sg.c0 > col) Spacer(Modifier.weight((sg.c0 - col).toFloat()))
+                val c = hexColor(q.color(sg.e))
+                val r = 6.dp; val z = 0.dp
+                Box(Modifier.weight((sg.c1 - sg.c0 + 1).toFloat()).padding(start = if (sg.contL) 0.dp else 2.dp, end = if (sg.contR) 0.dp else 2.dp)
+                    .clip(RoundedCornerShape(topStart = if (sg.contL) z else r, bottomStart = if (sg.contL) z else r, topEnd = if (sg.contR) z else r, bottomEnd = if (sg.contR) z else r))
+                    .background(c).clickable { onClick(sg.e) }.padding(horizontal = 4.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
+                    T((if (sg.contL) "◀ " else "") + sg.e.title + (if (sg.contR) " ▶" else ""), size, onColor(c), true, maxLines = 1, center = true)
+                }
+                col = sg.c1 + 1
+            }
+            if (col < 7) Spacer(Modifier.weight((7 - col).toFloat()))
         }
     }
 }
@@ -198,6 +264,7 @@ fun WeekView(q: Q, cursor: String, onPick: (String) -> Unit, open: (Sheet) -> Un
                 }
             }
         }
+        SpanLanes(q, weekSegs(q, st), size) { e -> open(Sheet.View(e.id)) }
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             for (i in 0 until 7) {
                 val ds = plusDays(st, i.toLong())
@@ -209,7 +276,7 @@ fun WeekView(q: Q, cursor: String, onPick: (String) -> Unit, open: (Sheet) -> Un
                     HOLI[ds]?.let { T(it, 9.sp, P.hol, true) }
                     q.dayMark(ds)?.label?.takeIf { it.isNotBlank() }?.let { T(it, 9.sp, P.ink, true) }
                     if (bento.isNotEmpty() && q.viewer == "all") T("弁当:" + bento.joinToString("") { it.m.name.take(1) }, 9.sp, P.rasp, true)
-                    q.eventsOn(ds).forEach { e -> EvLabel(q, e, size, true) { open(Sheet.View(e.id)) } }
+                    q.eventsOn(ds).filter { !isMulti(it) }.forEach { e -> EvLabel(q, e, size, true) { open(Sheet.View(e.id)) } }
                 }
             }
         }

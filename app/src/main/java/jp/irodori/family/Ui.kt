@@ -162,15 +162,10 @@ fun Pill(text: String, bg: Color, fg: Color, m: Member? = null) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LunchPills(li: List<LunchInfo>) {
-    if (li.isEmpty()) return
+    val b = li.filter { it.st == "b" }
+    if (b.isEmpty()) return
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
-        li.forEach { x ->
-            when (x.st) {
-                "b" -> Pill("お弁当", P.tintR, P.rasp, x.m)
-                "k" -> Pill("給食" + if (x.menu.isNotBlank()) "：${x.menu}" else "", P.tintT, P.teal, x.m)
-                else -> Pill("給食なし", P.card2, P.sub, x.m)
-            }
-        }
+        b.forEach { x -> Pill("お弁当", P.tintR, P.rasp, x.m) }
     }
 }
 

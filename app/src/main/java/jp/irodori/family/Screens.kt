@@ -461,58 +461,49 @@ fun ListScreen(q: Q, open: (Sheet) -> Unit) {
 /* ============================ とりこみ ============================ */
 private data class RvEvent(val sel: Boolean, val date: String, val start: String, val end: String, val title: String, val location: String, val note: String, val outdoor: Boolean, val members: List<String> = emptyList())
 
+/** お弁当の日を付ける/外す(メンバーごと) */
+fun setBento(q: Q, mids: List<String>, days: Collection<String>, on: Boolean) {
+    mids.forEach { mid ->
+        val cur = Repo.q().lunchOf(mid) ?: Lunch(mid)
+        val st = cur.status.toMutableMap()
+        days.forEach { d -> if (on) st[d] = "b" else if (st[d] == "b") st.remove(d) }
+        Repo.putLunch(cur.copy(status = st, sample = false, deleted = false))
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ImportScreen(q: Q, open: (Sheet) -> Unit) {
     var text by remember { mutableStateOf("") }
     val mem = remember { mutableStateListOf("k1") }
     var err by remember { mutableStateOf("") }
+    var info by remember { mutableStateOf("") }
     var cat by remember { mutableStateOf("club") }
-    val lunch = remember { mutableStateMapOf<String, String>() }
-    val menus = remember { mutableStateMapOf<String, String>() }
-    val unsure = remember { mutableStateListOf<String>() }
-    var lunchYm by remember { mutableStateOf<LocalDate?>(null) }
-    var bentoMode by remember { mutableStateOf(false) }
     val evs = remember { mutableStateListOf<RvEvent>() }
 
-    fun loadLunchMonth(first: LocalDate) {
-        lunchYm = first; lunch.clear(); menus.clear(); unsure.clear()
-        q.lunchOf(mem.firstOrNull() ?: "")?.let { l -> lunch.putAll(l.status); menus.putAll(l.menus) }
-    }
+    fun ids(a: org.json.JSONArray?): List<String> = a?.let { x -> (0 until x.length()).mapNotNull { i -> val n = x.optString(i); q.members.firstOrNull { it.name == n || it.id == n }?.id } } ?: emptyList()
+    fun strs(a: org.json.JSONArray?): List<String> = a?.let { x -> (0 until x.length()).map { x.optString(it) } } ?: emptyList()
     fun parse() {
-        err = ""; evs.clear(); lunchYm = null
+        err = ""; info = ""; evs.clear()
         try {
             val j = JSONObject(text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1))
-            j.optJSONArray("members")?.let { a ->
-                val ids = (0 until a.length()).mapNotNull { i -> val n = a.optString(i); q.members.firstOrNull { it.name == n || it.id == n }?.id }
-                if (ids.isNotEmpty()) { mem.clear(); mem.addAll(ids) }
-            }
+            ids(j.optJSONArray("members")).let { if (it.isNotEmpty()) { mem.clear(); mem.addAll(it) } }
             if (mem.isEmpty()) { err = "だれの分か選んでください"; return }
-            val type = j.optString("type").ifBlank { if (j.has("days")) "lunch" else "events" }
-            if (type == "lunch") {
-                val days = j.optJSONArray("days")
-                val list = (0 until (days?.length() ?: 0)).mapNotNull { i -> days!!.optJSONObject(i)?.let { o -> if (isDate(o.optString("date"))) o.optString("date") to o.optString("menu") else null } }
-                val now = LocalDate.now()
-                var first = LocalDate.of(j.optInt("year", now.year), j.optInt("month", now.monthValue).coerceIn(1, 12), 1)
-                if (list.isNotEmpty()) { val top = list.groupingBy { it.first.take(7) }.eachCount().maxByOrNull { it.value }!!.key; first = LocalDate.parse("$top-01") }
-                val no = j.optJSONArray("noLunch")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet()
-                lunchYm = first; lunch.clear(); menus.clear(); unsure.clear()
-                list.forEach { (ds, menu) -> menus[ds] = menu }
-                val listed = list.map { it.first }.toSet()
-                for (i in 0 until first.lengthOfMonth()) {
-                    val ds = first.plusDays(i.toLong()).toString(); val w = dowOf(ds)
-                    if (w == 0 || w == 6) continue
-                    when { ds in no -> lunch[ds] = "b"; ds in listed -> lunch[ds] = "k"; HOLI.containsKey(ds) -> lunch[ds] = "off"; else -> { lunch[ds] = "b"; unsure += ds } }
-                }
+            val type = j.optString("type").ifBlank { if (j.has("dates") || j.has("noLunch")) "bento" else "events" }
+            if (type == "bento" || type == "lunch") {
+                // お弁当の日だけ使う(給食の内容は使わない)
+                val days = (strs(j.optJSONArray("dates")) + strs(j.optJSONArray("bento")) + strs(j.optJSONArray("noLunch"))).filter { isDate(it) }.toSet()
+                if (days.isEmpty()) { err = "お弁当の日が見つかりませんでした"; return }
+                setBento(q, mem.toList(), days, true)
+                info = "${days.size}日をお弁当の日にしました（${mem.mapNotNull { q.member(it)?.name }.joinToString("・")}）"; text = ""
             } else {
                 cat = j.optString("cat").takeIf { it in listOf("club", "lesson", "school", "plan") } ?: "club"
                 val a = j.optJSONArray("events")
                 for (i in 0 until (a?.length() ?: 0)) {
                     val o = a!!.optJSONObject(i) ?: continue
                     if (!isDate(o.optString("date"))) continue
-                    val pm = o.optJSONArray("members")?.let { a2 -> (0 until a2.length()).mapNotNull { k -> val n = a2.optString(k); q.members.firstOrNull { it.name == n || it.id == n }?.id } } ?: emptyList()
                     evs += RvEvent(true, o.optString("date"), normTime(o.optString("start")), normTime(o.optString("end")), o.optString("title").ifBlank { "予定" },
-                        o.optString("location"), o.optString("note"), o.optBoolean("outdoor"), pm)
+                        o.optString("location"), o.optString("note"), o.optBoolean("outdoor"), ids(o.optJSONArray("members")))
                 }
                 if (evs.isEmpty()) err = "予定が1件も見つかりませんでした"
             }
@@ -545,67 +536,21 @@ fun ImportScreen(q: Q, open: (Sheet) -> Unit) {
             Btn("＋ 習い事を追加", P.orange, Modifier.padding(top = 6.dp)) { open(Sheet.LessonEd(null)) }
         }
 
+        BentoCard(q)
+
+        ManyDaysCard(q)
+
         CardBox {
-            SecH("献立表・予定表をまとめて入れる", "JSONを貼り付け")
-            T("1. 献立表・習い事・部活の予定表の写真を、Claudeのチャットに送って「カゾスケ用のJSONにして（だれの分か）」と頼む\n2. 返ってきたJSON（{ から } まで）をコピー\n3. 下に貼り付けて「読み込む」→ 中身を確認して保存", 13.sp)
+            SecH("予定表をまとめて入れる", "JSONを貼り付け")
+            T("1. 習い事・部活の予定表や、お弁当の日が書いてあるおたよりの写真を、Claudeのチャットに送って「カゾスケ用のJSONにして（だれの分か）」と頼む\n2. 返ってきたJSON（{ から } まで）をコピー\n3. 下に貼り付けて「読み込む」→ 中身を確認して登録", 13.sp)
             Spacer(Modifier.height(8.dp))
-            T("だれの分？（複数OK：同じ学校のきょうだいはまとめて）", 12.sp, P.sub, true); Spacer(Modifier.height(4.dp))
+            T("だれの分？（複数OK）", 12.sp, P.sub, true); Spacer(Modifier.height(4.dp))
             MemberChips(q, mem.toSet(), { id -> if (id in mem) mem.remove(id) else mem += id })
             Spacer(Modifier.height(8.dp))
-            Field(text, { text = it }, "JSON", singleLine = false, minLines = 4, placeholder = "{\"type\":\"lunch\", ... }")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Btn("読み込む", P.rasp) { parse() }
-                GhostBtn("お弁当の日を手で入れる", small = false) { if (mem.isEmpty()) err = "だれの分か選んでください" else { bentoMode = true; loadLunchMonth(LocalDate.now().withDayOfMonth(1)) } }
-            }
+            Field(text, { text = it }, "JSON", singleLine = false, minLines = 4, placeholder = "{\"type\":\"events\", ... }")
+            Btn("読み込む", P.rasp, Modifier.fillMaxWidth()) { parse() }
             if (err.isNotBlank()) T(err, 13.sp, P.rasp, true, Modifier.padding(top = 6.dp))
-        }
-
-        ManualDaysCard(q)
-
-        lunchYm?.let { first ->
-            CardBox {
-                SecH("${first.year}年${first.monthValue}月 " + if (bentoMode) "お弁当の日" else "給食カレンダー", mem.mapNotNull { q.member(it)?.name }.joinToString("・"))
-                T(if (bentoMode) "お弁当が必要な日をタップしてください（もう一度タップで外す）。"
-                  else "マスをタップで「給食 → お弁当 → なし(休み) → 未設定」と切り替わります。オレンジ枠は献立表に載っていなかった平日です（お弁当にしてあります）。", 12.sp, P.sub)
-                Spacer(Modifier.height(8.dp))
-                Row { DAY.forEach { T(it, 11.sp, P.sub, true, Modifier.weight(1f), center = true) } }
-                val lead = dow(first); val n = first.lengthOfMonth(); val rows = (lead + n + 6) / 7
-                for (r in 0 until rows) {
-                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        for (c in 0 until 7) {
-                            val idx = r * 7 + c - lead
-                            if (idx < 0 || idx >= n) { Spacer(Modifier.weight(1f)); continue }
-                            val ds = first.plusDays(idx.toLong()).toString(); val we = c == 0 || c == 6
-                            val st = lunch[ds]
-                            val (bg, fg, lb) = if (bentoMode && st != "b") Triple(P.card2, P.sub, "") else when (st) { "k" -> Triple(P.tintT, P.teal, "給食"); "b" -> Triple(P.tintR, P.rasp, "お弁当"); "off" -> Triple(P.card2, P.sub, "なし"); else -> Triple(P.card2, P.sub, "—") }
-                            Column(Modifier.weight(1f).height(60.dp).clip(RoundedCornerShape(10.dp)).background(if (we) Color.Transparent else bg)
-                                .border(1.5.dp, if (ds in unsure && st == "b") P.orange else Color.Transparent, RoundedCornerShape(10.dp))
-                                .clickable(enabled = !we) {
-                                    val nx = if (bentoMode) (if (st == "b") (if (menus[ds].isNullOrBlank()) null else "k") else "b")
-                                             else listOf(null, "k", "b", "off").let { o -> o[(o.indexOf(st) + 1) % 4] }
-                                    if (nx == null) lunch.remove(ds) else lunch[ds] = nx; unsure.remove(ds)
-                                }.padding(3.dp)) {
-                                T("${idx + 1}", 12.sp, dayCol(ds, P).copy(alpha = if (we) 0.4f else 1f), true)
-                                if (!we) { T(lb, 10.sp, fg, true); T(menus[ds] ?: HOLI[ds] ?: "", 9.sp, P.sub, maxLines = 2) }
-                            }
-                        }
-                    }
-                }
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GhostBtn("‹ 前の月", small = false) { loadLunchMonth(first.minusMonths(1)) }
-                    GhostBtn("次の月 ›", small = false) { loadLunchMonth(first.plusMonths(1)) }
-                    Btn("保存", P.rasp, Modifier.weight(1f)) {
-                        val prefix = first.toString().take(8)
-                        mem.forEach { mid ->
-                            val cur = q.lunchOf(mid) ?: Lunch(mid)
-                            val st = cur.status.filterKeys { !it.startsWith(prefix) } + lunch.filterKeys { it.startsWith(prefix) }
-                            val mn = cur.menus + menus.filter { it.key.startsWith(prefix) && it.value.isNotBlank() }
-                            Repo.putLunch(cur.copy(status = st, menus = mn, sample = false, deleted = false))
-                        }
-                        lunchYm = null; text = ""; bentoMode = false
-                    }
-                }
-            }
+            if (info.isNotBlank()) T("✓ " + info, 13.sp, P.teal, true, Modifier.padding(top = 6.dp))
         }
 
         if (evs.isNotEmpty()) CardBox {
@@ -634,59 +579,19 @@ fun ImportScreen(q: Q, open: (Sheet) -> Unit) {
     }
 }
 
-/* ============================ 習い事・部活の日を手で入れる ============================ */
-private data class DayPlan(val start: String, val end: String, val loc: String)
-
-@OptIn(ExperimentalLayoutApi::class)
+/* ============================ お弁当の日 ============================ */
 @Composable
-fun ManualDaysCard(q: Q) {
-    val ctx = LocalContext.current
-    var opened by remember { mutableStateOf(false) }
-    var name by remember { mutableStateOf("") }
-    var cat by remember { mutableStateOf("lesson") }
-    val who = remember { mutableStateListOf<String>() }
-    var dStart by remember { mutableStateOf("10:00") }
-    var dEnd by remember { mutableStateOf("11:30") }
-    var dLoc by remember { mutableStateOf("") }
+fun BentoCard(q: Q) {
     var month by remember { mutableStateOf(LocalDate.now().withDayOfMonth(1)) }
-    val plan = remember { mutableStateMapOf<String, DayPlan>() }
-    var msg by remember { mutableStateOf("") }
+    val who = remember { mutableStateListOf<String>().apply {
+        addAll(q.members.filter { m -> q.lunchOf(m.id)?.status?.values?.contains("b") == true }.map { it.id }.ifEmpty { listOfNotNull(q.members.getOrNull(2)?.id) })
+    } }
     CardBox {
-        SecH("習い事・部活の日を手で入れる", "日ごとに時間・場所OK")
-        if (!opened) {
-            T("チアダンスのように、日によって時間や場所が違う予定をカレンダーで選んで入れます。だれの予定か（複数人OK）も付けられます。", 12.5.sp, P.sub)
-            if (msg.isNotBlank()) T(msg, 13.sp, P.teal, true, Modifier.padding(top = 6.dp))
-            Btn("入力をはじめる", P.orange, Modifier.padding(top = 8.dp)) { opened = true; msg = "" }
-            return@CardBox
-        }
-        val ls = q.d.lessons.filter { !it.deleted }
-        if (ls.isNotEmpty()) {
-            T("登録済みの習い事から選ぶ", 12.sp, P.sub, true)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 6.dp)) {
-                ls.forEach { l ->
-                    Box(Modifier.clip(CircleShape).background(if (name == l.name) P.tintO else P.card2).clickable {
-                        name = l.name; who.clear(); who.addAll(l.who()); dStart = l.start; dEnd = l.end; dLoc = l.location; cat = "lesson"
-                    }.padding(horizontal = 12.dp, vertical = 6.dp)) { T(l.name, 13.sp, bold = true) }
-                }
-            }
-        }
-        Field(name, { name = it }, "名前（例: チアダンス、バレー部）")
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-            listOf("lesson" to "習い事", "club" to "部活").forEach { (k, n) ->
-                Box(Modifier.clip(CircleShape).background(if (cat == k) P.tintR else P.card2).clickable { cat = k }.padding(horizontal = 12.dp, vertical = 6.dp)) { T(n, 13.sp, if (cat == k) P.rasp else P.ink, true) }
-            }
-        }
-        T("だれ（複数OK）", 12.sp, P.sub, true); Spacer(Modifier.height(4.dp))
+        SecH("${q.fp.bentoIcon.ifBlank { "🍱" }} お弁当の日", "タップで付ける・外す")
+        T("お弁当が必要な日をタップしてください。もう一度タップで外れます。下で選んだ人みんなに付きます。", 12.5.sp, P.sub)
+        Spacer(Modifier.height(6.dp))
         MemberChips(q, who.toSet(), { id -> if (id in who) who.remove(id) else who += id })
-        Spacer(Modifier.height(8.dp))
-        T("いつもの時間・場所（選んだ日に最初に入る値）", 12.sp, P.sub, true)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PickBox("開始", dStart, Modifier.weight(1f)) { pickTime(ctx, dStart) { dStart = it } }
-            PickBox("終了", dEnd, Modifier.weight(1f)) { pickTime(ctx, dEnd) { dEnd = it } }
-        }
-        Field(dLoc, { dLoc = it }, "場所")
-        // 月のカレンダー: タップで日を選ぶ
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
             GhostBtn("‹") { month = month.minusMonths(1) }
             T("${month.year}年${month.monthValue}月", 15.sp, bold = true, modifier = Modifier.weight(1f), center = true)
             GhostBtn("›") { month = month.plusMonths(1) }
@@ -698,46 +603,144 @@ fun ManualDaysCard(q: Q) {
                 for (c in 0 until 7) {
                     val idx = r * 7 + c - lead
                     if (idx < 0 || idx >= n) { Spacer(Modifier.weight(1f)); continue }
-                    val ds = month.plusDays(idx.toLong()).toString(); val p = plan[ds]
-                    Column(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(10.dp)).background(if (p != null) P.tintO else P.card2)
+                    val ds = month.plusDays(idx.toLong()).toString()
+                    val has = q.members.filter { m -> q.lunchOf(m.id)?.status?.get(ds) == "b" }
+                    val allOn = who.isNotEmpty() && who.all { id -> has.any { it.id == id } }
+                    Column(Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(10.dp)).background(if (allOn) P.tintR else if (has.isNotEmpty()) P.tintR.copy(alpha = 0.45f) else P.card2)
                         .border(if (ds == todayStr()) 2.dp else 0.dp, if (ds == todayStr()) P.rasp else Color.Transparent, RoundedCornerShape(10.dp))
-                        .clickable { if (p != null) plan.remove(ds) else plan[ds] = DayPlan(dStart, dEnd, dLoc) }.padding(3.dp),
+                        .clickable(enabled = who.isNotEmpty()) { setBento(q, who.toList(), listOf(ds), !allOn) }.padding(3.dp),
                         horizontalAlignment = Alignment.CenterHorizontally) {
-                        T("${idx + 1}", 12.sp, dayCol(ds, P), true)
-                        if (p != null) T("✓" + p.start.removePrefix("0"), 9.5.sp, P.orange, true)
+                        T("${idx + 1}", 12.sp, dayCol(ds, P).copy(alpha = if (c == 0 || c == 6) 0.6f else 1f), true)
+                        if (has.isNotEmpty()) T(q.fp.bentoIcon.ifBlank { "🍱" } + has.joinToString("") { it.name.take(1) }, 9.5.sp, P.rasp, true, maxLines = 1)
                     }
                 }
             }
         }
-        val sel = plan.keys.sorted()
-        if (sel.isNotEmpty()) {
+        if (who.isEmpty()) T("だれのお弁当か選んでください", 12.sp, P.rasp, true)
+    }
+}
+
+/* ============================ 習い事・部活の日を手で入れる(何種類でも) ============================ */
+private data class Plan(val id: String, val date: String, val name: String, val who: List<String>, val start: String, val end: String, val loc: String, val cat: String)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ManyDaysCard(q: Q) {
+    val ctx = LocalContext.current
+    var opened by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    var cat by remember { mutableStateOf("lesson") }
+    val who = remember { mutableStateListOf<String>() }
+    var dStart by remember { mutableStateOf("10:00") }
+    var dEnd by remember { mutableStateOf("11:30") }
+    var dLoc by remember { mutableStateOf("") }
+    var month by remember { mutableStateOf(LocalDate.now().withDayOfMonth(1)) }
+    val plans = remember { mutableStateListOf<Plan>() }
+    val recent = remember { mutableStateListOf<String>() }
+    var msg by remember { mutableStateOf("") }
+    fun colorOf(ids: List<String>) = hexColor(ids.firstOrNull()?.let { q.member(it)?.color } ?: "#7DAA92")
+
+    CardBox {
+        SecH("習い事・部活の日を手で入れる", "何種類でもまとめて")
+        if (!opened) {
+            T("部活・チア・ピアノなど、日によって時間や場所が違う予定をカレンダーでまとめて入れます。習い事を切り替えながら、続けて日を選べます。", 12.5.sp, P.sub)
+            if (msg.isNotBlank()) T("✓ " + msg, 13.sp, P.teal, true, Modifier.padding(top = 6.dp))
+            Btn("入力をはじめる", P.orange, Modifier.padding(top = 8.dp)) { opened = true; msg = "" }
+            return@CardBox
+        }
+        T("① 入れる習い事を選ぶ（または名前を入れる）\n② カレンダーの日をタップ（もう一度で外す）\n③ 別の習い事に切り替えて、また日をタップ\n④ 最後に「まとめて登録」", 12.5.sp, P.sub)
+        Spacer(Modifier.height(6.dp))
+        val ls = q.d.lessons.filter { !it.deleted }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+            ls.forEach { l ->
+                val sel = name == l.name
+                Box(Modifier.clip(CircleShape).background(if (sel) colorOf(l.who()) else P.card2).clickable {
+                    name = l.name; who.clear(); who.addAll(l.who()); dStart = l.start; dEnd = l.end; dLoc = l.location; cat = "lesson"
+                }.padding(horizontal = 12.dp, vertical = 6.dp)) { T(l.name, 13.sp, if (sel) onColor(colorOf(l.who())) else P.ink, true) }
+            }
+            recent.filter { r -> ls.none { it.name == r } }.forEach { r ->
+                Box(Modifier.clip(CircleShape).background(if (name == r) P.tintO else P.card2).clickable { name = r }.padding(horizontal = 12.dp, vertical = 6.dp)) { T(r, 13.sp, bold = true) }
+            }
+        }
+        Field(name, { name = it }, "名前（例: バレー部、チアダンス、ピアノ）")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+            listOf("lesson" to "習い事", "club" to "部活").forEach { (k, n) ->
+                Box(Modifier.clip(CircleShape).background(if (cat == k) P.tintR else P.card2).clickable { cat = k }.padding(horizontal = 12.dp, vertical = 6.dp)) { T(n, 13.sp, if (cat == k) P.rasp else P.ink, true) }
+            }
+        }
+        T("だれ（複数OK）", 12.sp, P.sub, true); Spacer(Modifier.height(4.dp))
+        MemberChips(q, who.toSet(), { id -> if (id in who) who.remove(id) else who += id })
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PickBox("いつもの開始", dStart, Modifier.weight(1f)) { pickTime(ctx, dStart) { dStart = it } }
+            PickBox("いつもの終了", dEnd, Modifier.weight(1f)) { pickTime(ctx, dEnd) { dEnd = it } }
+        }
+        Field(dLoc, { dLoc = it }, "いつもの場所")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            GhostBtn("‹") { month = month.minusMonths(1) }
+            T("${month.year}年${month.monthValue}月", 15.sp, bold = true, modifier = Modifier.weight(1f), center = true)
+            GhostBtn("›") { month = month.plusMonths(1) }
+        }
+        Row(Modifier.padding(top = 6.dp)) { DAY.forEach { T(it, 11.sp, P.sub, true, Modifier.weight(1f), center = true) } }
+        val lead = dow(month); val n = month.lengthOfMonth(); val rows = (lead + n + 6) / 7
+        for (r in 0 until rows) {
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                for (c in 0 until 7) {
+                    val idx = r * 7 + c - lead
+                    if (idx < 0 || idx >= n) { Spacer(Modifier.weight(1f)); continue }
+                    val ds = month.plusDays(idx.toLong()).toString()
+                    val dayPlans = plans.filter { it.date == ds }
+                    val mine = dayPlans.any { it.name == name.trim() }
+                    Column(Modifier.weight(1f).fillMaxHeight().defaultMinSize(minHeight = 52.dp).clip(RoundedCornerShape(10.dp)).background(if (mine) P.tintO else P.card2)
+                        .border(if (ds == todayStr()) 2.dp else 0.dp, if (ds == todayStr()) P.rasp else Color.Transparent, RoundedCornerShape(10.dp))
+                        .clickable {
+                            val nm = name.trim()
+                            if (nm.isBlank()) { msg = "先に習い事を選ぶか、名前を入れてください"; return@clickable }
+                            msg = ""
+                            val ex = plans.firstOrNull { it.date == ds && it.name == nm }
+                            if (ex != null) plans.remove(ex) else {
+                                plans += Plan(uid(), ds, nm, who.toList(), dStart, dEnd, dLoc.trim(), cat)
+                                if (nm !in recent) recent += nm
+                            }
+                        }.padding(2.dp)) {
+                        T("${idx + 1}", 12.sp, dayCol(ds, P), true, Modifier.fillMaxWidth(), center = true)
+                        dayPlans.forEach { p ->
+                            val col = colorOf(p.who)
+                            T(p.name.take(4), 8.5.sp, onColor(col), true, Modifier.fillMaxWidth().padding(top = 1.dp).clip(RoundedCornerShape(3.dp)).background(col).padding(horizontal = 1.dp), maxLines = 1)
+                        }
+                    }
+                }
+            }
+        }
+        if (msg.isNotBlank() && !msg.endsWith("登録しました")) T(msg, 13.sp, P.rasp, true, Modifier.padding(top = 4.dp))
+        if (plans.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            T("選んだ日（${sel.size}日）— 日ごとに変えられます", 12.sp, P.sub, true)
-            sel.forEach { ds ->
-                val p = plan[ds] ?: return@forEach
-                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).background(P.card2).padding(8.dp)) {
+            T("選んだ予定（${plans.size}件）— 時間・場所は1件ずつ変えられます", 12.sp, P.sub, true)
+            plans.sortedWith(compareBy({ it.date }, { it.start })).forEach { p ->
+                val col = colorOf(p.who)
+                Column(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(12.dp)).background(P.card2).padding(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        T(md(ds), 14.sp, dayCol(ds, P), true, Modifier.weight(1f))
-                        T("×", 18.sp, P.rasp, true, Modifier.clickable { plan.remove(ds) }.padding(horizontal = 8.dp))
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(col)); Spacer(Modifier.width(6.dp))
+                        T("${mdShort(p.date)}(${DAY[dowOf(p.date)]}) ${p.name}", 14.sp, bold = true, modifier = Modifier.weight(1f))
+                        T(p.who.mapNotNull { q.member(it)?.name?.take(1) }.joinToString(""), 12.sp, P.sub, true)
+                        T("×", 18.sp, P.rasp, true, Modifier.clickable { plans.remove(p) }.padding(horizontal = 8.dp))
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PickBox("開始", p.start, Modifier.weight(1f)) { pickTime(ctx, p.start) { t -> plan[ds] = p.copy(start = t) } }
-                        PickBox("終了", p.end, Modifier.weight(1f)) { pickTime(ctx, p.end) { t -> plan[ds] = p.copy(end = t) } }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                        Box(Modifier.clip(RoundedCornerShape(10.dp)).background(P.card).clickable { pickTime(ctx, p.start) { t -> plans[plans.indexOf(p)] = p.copy(start = t) } }.padding(horizontal = 10.dp, vertical = 6.dp)) { T(p.start.ifBlank { "開始" }, 13.sp, bold = true) }
+                        T("〜", 13.sp, P.sub)
+                        Box(Modifier.clip(RoundedCornerShape(10.dp)).background(P.card).clickable { pickTime(ctx, p.end) { t -> plans[plans.indexOf(p)] = p.copy(end = t) } }.padding(horizontal = 10.dp, vertical = 6.dp)) { T(p.end.ifBlank { "終了" }, 13.sp, bold = true) }
                     }
-                    Field(p.loc, { v -> plan[ds] = p.copy(loc = v) }, "場所")
+                    Field(p.loc, { v -> val i = plans.indexOf(p); if (i >= 0) plans[i] = p.copy(loc = v) }, "場所")
                 }
             }
         }
-        if (msg.isNotBlank()) T(msg, 13.sp, P.rasp, true)
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GhostBtn("閉じる", small = false) { opened = false; plan.clear() }
-            Btn("${sel.size}件を登録", P.rasp, Modifier.weight(1f), enabled = sel.isNotEmpty()) {
-                if (name.isBlank()) { msg = "名前を入れてください"; return@Btn }
-                sel.forEach { ds -> val p = plan[ds]!!
-                    Repo.putEvent(Event(uid(), ds, start = p.start, end = p.end, allDay = p.start.isBlank(), title = name.trim(), members = who.toList(), location = p.loc.trim(), cat = cat))
-                }
-                msg = "${name}を${sel.size}件登録しました"; plan.clear(); opened = false
+            GhostBtn("閉じる", small = false) { opened = false }
+            Btn("${plans.size}件をまとめて登録", P.rasp, Modifier.weight(1f), enabled = plans.isNotEmpty()) {
+                plans.forEach { p -> Repo.putEvent(Event(uid(), p.date, start = p.start, end = p.end, allDay = p.start.isBlank(), title = p.name, members = p.who, location = p.loc, cat = p.cat)) }
+                msg = "${plans.size}件を登録しました"; plans.clear()
             }
         }
+        if (msg.endsWith("登録しました")) T("✓ " + msg, 13.sp, P.teal, true)
     }
 }

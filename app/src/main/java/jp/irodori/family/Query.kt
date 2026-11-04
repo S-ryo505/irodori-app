@@ -202,7 +202,6 @@ class Q(val d: AppData, val s: Settings, val w: Weather?, val pt: List<Todo> = e
         val bento = li.filter { it.st == "b" }
         val kyu = li.firstOrNull { it.st == "k" && it.menu.isNotBlank() }
         if (bento.isNotEmpty()) sb.append(if (mid != null) "お弁当の日だよ。忘れないでね。" else bento.joinToString("と") { it.m.name } + "はお弁当の日だよ。")
-        else if (kyu != null && mid != null) sb.append("給食は${kyu.menu}だよ。")
         d.todos.filter { !it.deleted && !it.done && it.due.isNotBlank() && it.due <= day && (mid == null || it.owner.isBlank() || it.owner == mid) }
             .take(2).forEach { sb.append("${it.text}を忘れずにね。") }
         dayAdvice(day, evs).firstOrNull()?.let { sb.append(it.text.replace(Regex("（.*?）"), "") + "。") }
