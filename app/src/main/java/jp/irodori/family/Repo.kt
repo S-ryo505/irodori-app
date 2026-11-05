@@ -48,7 +48,8 @@ object Repo {
             saveData()
         }
         ensureLessons()
-        Sync.start(ctx)
+        BgSync.schedule(ctx)
+        BgSync.registerUnlock(ctx)
     }
 
     private fun file(n: String) = File(ctx.filesDir, n)

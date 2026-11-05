@@ -279,7 +279,7 @@ fun SettingsScreen(q: Q) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 GhostBtn("家族IDを新しく作る") { fam = randomId(20) }
                 GhostBtn("家族IDをコピー") { copy(ctx, fam); msg = "家族IDをコピーしました" }
-                Btn("接続する", small = true) { Repo.setSettings { it.copy(fbConfig = cfg, familyId = fam.trim()) }; Sync.start(ctx) }
+                Btn("接続する", small = true) { Repo.setSettings { it.copy(fbConfig = cfg, familyId = fam.trim(), syncCursor = 0) }; Sync.start(ctx, force = true) }
             }
             Spacer(Modifier.height(8.dp))
             T("""最初の準備（1回だけ・パソコン推奨）

@@ -71,18 +71,30 @@ object Sync {
         return if (key != null && app != null && pid != null) FirebaseOptions.Builder().setApiKey(key).setApplicationId(app).setProjectId(pid).build() else null
     }
 
-    fun start(ctx: Context) {
+    private var startedKey = ""
+
+    /** Firebase の準備(同じ設定なら使い回す) */
+    private fun ensureApp(ctx: Context, opts: FirebaseOptions): FirebaseApp {
+        var app = FirebaseApp.getApps(ctx).firstOrNull { it.name == "irodori" }
+        if (app != null && (app.options.apiKey != opts.apiKey || app.options.projectId != opts.projectId)) { app.delete(); app = null }
+        return app ?: FirebaseApp.initializeApp(ctx, opts, "irodori")
+    }
+
+    /** アプリを開いている間のリアルタイム接続(家族の変更が数秒で届く) */
+    fun start(ctx: Context, force: Boolean = false) {
         val s = Repo.settings.value
+        val key = s.fbConfig.hashCode().toString() + "/" + s.familyId
+        if (!force && on && key == startedKey) return
         reg?.remove(); reg = null; on = false; col = null
         if (s.fbConfig.isBlank() || s.familyId.isBlank()) { status.value = "未接続"; return }
         val opts = parseConfig(s.fbConfig) ?: run { status.value = "設定を読めません。貼り付けた内容を確認してください"; return }
         status.value = "接続中…"
+        startedKey = key
         Repo.scope.launch(Dispatchers.Main) {
             try {
-                var app = FirebaseApp.getApps(ctx).firstOrNull { it.name == "irodori" }
-                if (app != null && (app.options.apiKey != opts.apiKey || app.options.projectId != opts.projectId)) { app.delete(); app = null }
-                if (app == null) app = FirebaseApp.initializeApp(ctx, opts, "irodori")
-                FirebaseAuth.getInstance(app).signInAnonymously().await()
+                val app = ensureApp(ctx, opts)
+                val auth = FirebaseAuth.getInstance(app)
+                if (auth.currentUser == null) auth.signInAnonymously().await()
                 val c = FirebaseFirestore.getInstance(app).collection("families").document(s.familyId).collection("items")
                 col = c
                 var first = true
@@ -91,9 +103,11 @@ object Sync {
                     if (snap == null) return@addSnapshotListener
                     var changed = false
                     val remote = HashMap<String, Long>()
+                    var mx = Repo.settings.value.syncCursor
                     for (dc in snap.documentChanges) {
                         val doc = dc.document
-                        remote[doc.id] = doc.getLong("updatedAt") ?: 0L
+                        val ts = doc.getLong("updatedAt") ?: 0L
+                        remote[doc.id] = ts; if (ts > mx) mx = ts
                         val kind = doc.getString("kind") ?: continue
                         val js = doc.getString("json") ?: continue
                         if (Repo.applyRemote(kind, js)) changed = true
@@ -107,12 +121,39 @@ object Sync {
                         }
                         status.value = "つながっています"; changed = true
                     }
+                    if (!snap.metadata.isFromCache) Repo.setSettings(refreshWidgets = false) { it.copy(syncCursor = maxOf(it.syncCursor, mx), lastSync = System.currentTimeMillis()) }
                     if (changed) Repo.saveData()
                 }
             } catch (e: Exception) {
-                status.value = "エラー: ${e.message}"; on = false
+                status.value = "エラー: ${e.message}"; on = false; startedKey = ""
             }
         }
+    }
+
+    /** 裏での読み込み: 前回から変わった分だけを1回読む(読み込み回数を節約) */
+    suspend fun fetchOnce(ctx: Context): Boolean {
+        val s = Repo.settings.value
+        if (s.fbConfig.isBlank() || s.familyId.isBlank()) return false
+        val opts = parseConfig(s.fbConfig) ?: return false
+        return try {
+            val app = withContext(Dispatchers.Main) { ensureApp(ctx, opts) }
+            val auth = FirebaseAuth.getInstance(app)
+            if (auth.currentUser == null) auth.signInAnonymously().await()
+            // 端末ごとの時計のずれを見込んで10分さかのぼる
+            val since = (s.syncCursor - 10 * 60_000L).coerceAtLeast(0L)
+            val snap = FirebaseFirestore.getInstance(app).collection("families").document(s.familyId).collection("items")
+                .whereGreaterThan("updatedAt", since).get(com.google.firebase.firestore.Source.SERVER).await()
+            var ch = false; var mx = s.syncCursor
+            for (d in snap.documents) {
+                val ts = d.getLong("updatedAt") ?: 0L; if (ts > mx) mx = ts
+                val k = d.getString("kind") ?: continue
+                val js = d.getString("json") ?: continue
+                if (Repo.applyRemote(k, js)) ch = true
+            }
+            if (ch) { Repo.flush(); Reminders.schedule(ctx) }
+            Repo.setSettings(refreshWidgets = false) { it.copy(syncCursor = mx, lastSync = System.currentTimeMillis()) }
+            true
+        } catch (e: Exception) { false }
     }
 
     fun push(kind: String, id: String, json: String, ts: Long) {
@@ -451,5 +492,50 @@ class SpeakService : android.app.Service(), TextToSpeech.OnInitListener {
         handler.removeCallbacksAndMessages(null)
         tts?.stop(); tts?.shutdown(); tts = null
         super.onDestroy()
+    }
+}
+
+/* ======================= 裏での更新: 15分ごと・アンロック時・ウィジェットの🔄 ======================= */
+object BgSync {
+    @Volatile private var lastRun = 0L
+    @Volatile private var unlockReg = false
+
+    /** 15分ごと(Androidで決められる最短)。ネットにつながっている時だけ */
+    fun schedule(ctx: Context) {
+        val req = androidx.work.PeriodicWorkRequestBuilder<SyncWorker>(15, java.util.concurrent.TimeUnit.MINUTES)
+            .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+            .build()
+        runCatching {
+            androidx.work.WorkManager.getInstance(ctx).enqueueUniquePeriodicWork("kazosuke-sync", androidx.work.ExistingPeriodicWorkPolicy.KEEP, req)
+        }
+    }
+
+    /** アンロックしたら読みに行く(カゾスケが裏で生きている間だけ受け取れる。Androidの決まり) */
+    fun registerUnlock(ctx: Context) {
+        if (unlockReg) return
+        unlockReg = true
+        runCatching {
+            ContextCompat.registerReceiver(ctx.applicationContext, object : BroadcastReceiver() {
+                override fun onReceive(c: Context, i: Intent) {
+                    if (System.currentTimeMillis() - lastRun > 120_000) Repo.scope.launch { run(c, false) }
+                }
+            }, android.content.IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_NOT_EXPORTED)
+        }
+    }
+
+    suspend fun run(ctx: Context, forceWx: Boolean): Boolean {
+        lastRun = System.currentTimeMillis()
+        val ok = Sync.fetchOnce(ctx)
+        withTimeoutOrNull(15_000) { Wx.refresh(ctx, forceWx) }
+        Widgets.refreshNow(ctx)
+        return ok
+    }
+}
+
+class SyncWorker(ctx: Context, params: androidx.work.WorkerParameters) : androidx.work.CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        Repo.init(applicationContext)
+        BgSync.run(applicationContext, false)
+        return Result.success()
     }
 }

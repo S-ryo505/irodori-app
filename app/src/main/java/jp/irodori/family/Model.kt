@@ -233,6 +233,9 @@ data class Settings(
     val widgetViewer: String = "all",
     /** 個別のお知らせを受け取る範囲: mine=自分に関係する予定 / all=全員 / off=受け取らない */
     val remindScope: String = "mine",
+    /** 裏での読み込み: どこまで読んだか(更新時刻) と、最後に読めた時刻 */
+    val syncCursor: Long = 0,
+    val lastSync: Long = 0,
     /** お弁当の日のマークと、その日の背景色(空なら色なし)。この端末だけ */
     val bentoIcon: String = "🍱",
     val bentoBg: String = "",

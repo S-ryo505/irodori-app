@@ -150,7 +150,7 @@ private fun TodayContent(q: Q, chara: ImageProvider, speak: androidx.glance.acti
                 }
             } else Text("天気: アプリを開いて取得", style = ts(11, WC.sub))
         }
-        WhoChips(q)
+        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { WhoChips(q); Spacer(GlanceModifier.defaultWeight()); RefreshChip(q) }
         Spacer(GlanceModifier.height(4.dp))
         LazyColumn(GlanceModifier.defaultWeight()) {
             if (evs.isEmpty()) item { Text("きょうの予定はありません", style = ts(13, WC.sub)) }
@@ -238,6 +238,7 @@ private fun WeekContent(q: Q) {
         Row(GlanceModifier.fillMaxWidth().padding(bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("${mdShort(st)}〜${mdShort(plusDays(st, 6))}", style = ts(12, WC.sub, true), modifier = GlanceModifier.padding(start = 4.dp))
             Spacer(GlanceModifier.defaultWeight())
+            RefreshChip(q)
             WhoChips(q)
         }
         Row(GlanceModifier.fillMaxWidth().defaultWeight()) {
@@ -312,6 +313,7 @@ private fun MonthContent(q: Q, variant: Int, chara: ImageProvider?, speak: andro
         Row(GlanceModifier.fillMaxWidth().padding(bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("${now.year}年${now.monthValue}月", style = ts(13, WC.ink, true), modifier = GlanceModifier.padding(start = 4.dp).clickable(openApp))
             Spacer(GlanceModifier.defaultWeight())
+            RefreshChip(q)
             WhoChips(q)
         }
         if (variant == 2) TodayStrip(q)
@@ -460,6 +462,24 @@ private fun WChip(label: String, hex: String, on: Boolean, v: String) {
     }
 }
 
+/* ---------- 🔄 いますぐ最新にする(アプリは開かない)。横は最後に読めた時刻 ---------- */
+class RefreshAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        Repo.init(context)
+        BgSync.run(context, true)
+    }
+}
+
+@Composable
+private fun RefreshChip(q: Q) {
+    val t = q.s.lastSync
+    val label = if (t > 0) "🔄" + java.text.SimpleDateFormat("H:mm", java.util.Locale.JAPAN).format(java.util.Date(t)) else "🔄"
+    Box(GlanceModifier.padding(end = 4.dp)) {
+        Text(label, style = ts(10, WC.sub, true), modifier = GlanceModifier.background(WC.bg2).cornerRadius(10.dp).padding(horizontal = 6.dp, vertical = 3.dp)
+            .clickable(actionRunCallback<RefreshAction>()))
+    }
+}
+
 class ToggleAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         Repo.init(context)
@@ -488,7 +508,8 @@ private fun ListContent(q: Q) {
     td.forEach { rows += LRow.Item("todo", it.id, it.text, q.todoSub(it), it.done) }
     if (td.isEmpty()) rows += LRow.Head("　ToDoはありません")
     Column(GlanceModifier.fillMaxSize().background(WC.bg).cornerRadius(22.dp).padding(10.dp)) {
-        LazyColumn(GlanceModifier.fillMaxSize()) {
+        Row(GlanceModifier.fillMaxWidth()) { Spacer(GlanceModifier.defaultWeight()); RefreshChip(q) }
+        LazyColumn(GlanceModifier.fillMaxWidth().defaultWeight()) {
             items(rows) { r ->
                 when (r) {
                     is LRow.Head -> Text(r.t, style = ts(if (r.t.startsWith("　")) 11 else 13, if (r.t.startsWith("　")) WC.sub else WC.ink, true),

@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Repo.init(this)
+        Sync.start(this)
         Speaker.init(this)
         Notifier.channel(this)
         Notifier.schedule(this)
