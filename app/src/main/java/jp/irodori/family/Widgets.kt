@@ -203,12 +203,32 @@ fun weekStart(ds: String): String {
 }
 
 /** 1件の予定を、その人の色の帯で表示 */
+/** 2人以上の予定用: 上下に色を分けた背景画像(色の組み合わせごとに作って使い回す) */
+private val splitCache = HashMap<String, android.graphics.Bitmap>()
+private fun splitBitmap(cols: List<String>): android.graphics.Bitmap = splitCache.getOrPut(cols.joinToString()) {
+    val band = 24
+    val bmp = android.graphics.Bitmap.createBitmap(4, band * cols.size, android.graphics.Bitmap.Config.ARGB_8888)
+    cols.forEachIndexed { i, c -> for (y in i * band until (i + 1) * band) for (x in 0 until 4) bmp.setPixel(x, y, parseColor(c)) }
+    bmp
+}
+
 @Composable
 private fun EvChip(q: Q, e: Event, withTime: Boolean, size: Int, lines: Int) {
-    val c = Color(parseColor(q.color(e)))
+    val cols = q.colors(e)
     val time = if (withTime && !e.allDay && e.start.isNotBlank()) e.start.removePrefix("0") + " " else ""
-    Text(time + e.title, maxLines = lines, style = ts(size, WC.ink, true),
-        modifier = GlanceModifier.fillMaxWidth().background(ColorProvider(c.copy(alpha = 0.30f))).cornerRadius(4.dp).padding(horizontal = 2.dp, vertical = 1.dp))
+    if (q.s.evStyle == "tint") {
+        val c = Color(parseColor(cols.first()))
+        Text(time + e.title, maxLines = lines, style = ts(size, WC.ink, true),
+            modifier = GlanceModifier.fillMaxWidth().background(ColorProvider(c.copy(alpha = 0.30f))).cornerRadius(4.dp).padding(horizontal = 2.dp, vertical = 1.dp))
+    } else if (cols.size == 1) {
+        Text(time + e.title, maxLines = lines, style = ts(size, ColorProvider(Color.White), true),
+            modifier = GlanceModifier.fillMaxWidth().background(ColorProvider(Color(parseColor(cols.first())))).cornerRadius(4.dp).padding(horizontal = 2.dp, vertical = 1.dp))
+    } else {
+        Box(GlanceModifier.fillMaxWidth().cornerRadius(4.dp)) {
+            Image(ImageProvider(splitBitmap(cols)), contentDescription = null, modifier = GlanceModifier.fillMaxSize(), contentScale = androidx.glance.layout.ContentScale.FillBounds)
+            Text(time + e.title, maxLines = lines, style = ts(size, ColorProvider(Color.White), true), modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 1.dp))
+        }
+    }
 }
 
 /** 日のマス: きょうは濃いピンクの枠で囲む。大事な日・お弁当の日は背景色 */
@@ -245,7 +265,7 @@ private fun WeekContent(q: Q) {
             for (i in 0 until 7) {
                 val ds = plusDays(st, i.toLong())
                 val evs = q.eventsOn(ds)
-                val top = (q.wxDay(ds)?.let { wxEmoji(it.code) } ?: "") + q.dayIcons(ds).joinToString("")
+                val top = (q.wxDay(ds)?.let { wxEmoji(it.code) } ?: "") + q.bentoMark(ds) + q.dayIcons(ds).joinToString("")
                 DayCell(q, ds, GlanceModifier.defaultWeight().fillMaxHeight().padding(horizontal = 1.dp), 10) {
                     Column(GlanceModifier.fillMaxSize().padding(2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         DayNum(ds, "${DAY[dowOf(ds)]}${parseD(ds).dayOfMonth}", 10)
@@ -271,9 +291,10 @@ private fun WxStrip(q: Q) {
     Column(GlanceModifier.fillMaxWidth().background(WC.bg2).cornerRadius(12.dp).padding(horizontal = 4.dp, vertical = 3.dp)) {
         Text(q.wxLine(), style = ts(9, WC.sub, true), maxLines = 1)
         Row(GlanceModifier.fillMaxWidth()) {
-            hs.forEach { (day, h) ->
-                Column(GlanceModifier.defaultWeight(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(if (day != t && h.h < 3) "翌${h.h}時" else "${h.h}時", style = ts(9, WC.sub))
+            hs.forEachIndexed { idx, (day, h) ->
+                val now = idx == 0
+                Column(GlanceModifier.defaultWeight().then(if (now) GlanceModifier.background(WC.todayBg).cornerRadius(8.dp) else GlanceModifier), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(if (now) "いま" else if (day != t && h.h < 3) "翌${h.h}時" else "${h.h}時", style = ts(9, if (now) WC.rasp else WC.sub, now))
                     Text(wxEmoji(h.code), style = ts(13))
                     Text("${h.t.roundToInt()}°", style = ts(10, WC.ink, true))
                     Text("${h.pop}%", style = ts(9, if (h.pop >= 50) WC.rasp else WC.rain, h.pop >= 50))
@@ -328,7 +349,7 @@ private fun MonthContent(q: Q, variant: Int, chara: ImageProvider?, speak: andro
                         val dd = start.plusDays((wk * 7 + i).toLong()); val ds = dd.toString()
                         val evs = q.eventsOn(ds)
                         val other = dd.monthValue != now.monthValue
-                        val top = (q.wxDay(ds)?.let { wxEmoji(it.code) } ?: "") + q.dayIcons(ds, 2).joinToString("")
+                        val top = q.bentoMark(ds) + q.dayIcons(ds, 2).joinToString("")
                         val maxEv = if (variant >= 1) 3 else 4
                         DayCell(q, ds, GlanceModifier.defaultWeight().fillMaxHeight().padding(1.dp), 6) {
                             Column(GlanceModifier.fillMaxSize().padding(1.dp)) {
@@ -357,8 +378,8 @@ private fun WeekWxRow(q: Q) {
     Row(GlanceModifier.fillMaxWidth().background(WC.bg2).cornerRadius(12.dp).padding(horizontal = 4.dp, vertical = 3.dp)) {
         for (i in 0 until 7) {
             val ds = plusDays(t, i.toLong()); val d = q.wxDay(ds)
-            Column(GlanceModifier.defaultWeight(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("${parseD(ds).dayOfMonth}(${DAY[dowOf(ds)]})", style = ts(9, if (i == 0) WC.rasp else dayColor(ds), true), maxLines = 1)
+            Column(GlanceModifier.defaultWeight().then(if (i == 0) GlanceModifier.background(WC.todayBg).cornerRadius(8.dp) else GlanceModifier), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(if (i == 0) "きょう" else "${parseD(ds).dayOfMonth}(${DAY[dowOf(ds)]})", style = ts(9, if (i == 0) WC.rasp else dayColor(ds), true), maxLines = 1)
                 if (d != null) {
                     Text(wxEmoji(d.code), style = ts(13))
                     Row { Text("${d.max.roundToInt()}", style = ts(9, WC.hol, true)); Text("|", style = ts(9, WC.sub)); Text("${d.min.roundToInt()}", style = ts(9, WC.sat, true)) }
@@ -376,7 +397,7 @@ private fun TodayStrip(q: Q) {
     Row(GlanceModifier.fillMaxWidth().padding(bottom = 3.dp).background(WC.todayBg).cornerRadius(10.dp).padding(3.dp).clickable(openApp), verticalAlignment = Alignment.CenterVertically) {
         Column(GlanceModifier.padding(horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("きょう", style = ts(9, WC.rasp, true))
-            Text(q.dayIcons(t).joinToString("").ifBlank { mdShort(t) }, style = ts(11, WC.ink, true), maxLines = 1)
+            Text((q.bentoMark(t) + q.dayIcons(t).joinToString("")).ifBlank { mdShort(t) }, style = ts(11, WC.ink, true), maxLines = 1)
         }
         if (evs.isEmpty()) Text("予定はありません", style = ts(11, WC.sub), modifier = GlanceModifier.defaultWeight())
         evs.take(4).forEach { e ->

@@ -54,7 +54,11 @@ val HOLI = mapOf(
 )
 
 val CATS = linkedMapOf("plan" to "予定", "school" to "学校", "lesson" to "習い事", "club" to "部活", "out" to "おでかけ", "hosp" to "病院", "other" to "その他")
-val PALETTE = listOf("#34408E", "#C8457A", "#2E84A3", "#E98D4D", "#9A8BCF", "#7DAA92", "#D9879F", "#B8925A", "#5C6B7A", "#6C9BD2")
+val PALETTE = listOf(
+    "#34408E", "#4F6BD8", "#6C9BD2", "#2E84A3", "#3BA7A0", "#7DAA92", "#4E9A5B", "#9BB547",
+    "#E0B43A", "#E98D4D", "#E06A4E", "#C9453B", "#C8457A", "#D9879F", "#E87FB8", "#B05CC6",
+    "#9A8BCF", "#7A5FA8", "#B8925A", "#8B6B4E", "#5C6B7A", "#3E4553", "#9AA3AF", "#F2A7A0",
+)
 
 fun wxKind(c: Int?): String = when {
     c == null -> "cloud"

@@ -66,6 +66,7 @@ fun SettingsScreen(q: Q) {
     val charVer by CharStore.version.collectAsState()
     var msg by remember { mutableStateOf("") }
     var charTarget by remember { mutableStateOf("") }
+    var freeFor by remember { mutableStateOf("") }
 
     val pickHtml = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
         if (u != null) readText(ctx, u)?.let { File(ctx.filesDir, "char_html_$charTarget.html").writeText(it); File(ctx.filesDir, "char_glb_$charTarget.glb").delete(); CharStore.version.value++ }
@@ -112,6 +113,15 @@ fun SettingsScreen(q: Q) {
             T("この端末で見る人（娘さんの端末は本人にすると、その子の予定だけ）", 12.sp, P.sub, true); Spacer(Modifier.height(4.dp))
             MemberChips(q, setOf(q.viewer), { id -> Repo.setSettings { it.copy(viewer = id) } }, withAll = true, allSelected = q.viewer == "all", onAll = { Repo.setSettings { it.copy(viewer = "all") } })
             Spacer(Modifier.height(10.dp))
+            T("予定の見た目", 12.sp, P.sub, true)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)) {
+                listOf("solid" to "塗りつぶし・白文字", "tint" to "うす塗り・色の線").forEach { (k, n) ->
+                    Box(Modifier.clip(CircleShape).background(if (q.s.evStyle == k) P.tintR else P.card2).clickable { Repo.setSettings { it.copy(evStyle = k) } }.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                        T(n, 13.sp, if (q.s.evStyle == k) P.rasp else P.ink, true)
+                    }
+                }
+            }
+            T("2人以上の予定は、塗りつぶしでは上下に色を分け、うす塗りでは左に色の線を並べます。", 11.5.sp, P.sub, modifier = Modifier.padding(bottom = 8.dp))
             T("開いたときの画面", 12.sp, P.sub, true)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
                 listOf("month" to "カレンダー（月）", "week" to "カレンダー（週）", "day" to "カレンダー（日）", "home" to "きょう").forEach { (k, n) ->
@@ -133,9 +143,12 @@ fun SettingsScreen(q: Q) {
                     if (name != m.name && name.isNotBlank()) { Spacer(Modifier.width(4.dp)); Btn("保存", small = true) { Repo.putMember(m.copy(name = name.trim())) } }
                     else if (q.members.size > 1) { Spacer(Modifier.width(4.dp)); GhostBtn(if (armed) "もう一度" else "削除") { if (!armed) armed = true else { Repo.putMember(m.copy(deleted = true)); if (q.viewer == m.id) Repo.setSettings { it.copy(viewer = "all") } } } }
                 }
-                Row(Modifier.padding(start = 38.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    PALETTE.forEach { c -> Box(Modifier.size(24.dp).clip(CircleShape).background(hexColor(c)).border(2.dp, if (m.color == c) P.ink else Color.Transparent, CircleShape).clickable { Repo.putMember(m.copy(color = c)) }) }
+                FlowRow(Modifier.padding(start = 38.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    PALETTE.forEach { c -> Box(Modifier.size(26.dp).clip(CircleShape).background(hexColor(c)).border(2.5.dp, if (m.color.equals(c, true)) P.ink else Color.Transparent, CircleShape).clickable { Repo.putMember(m.copy(color = c)) }) }
+                    Box(Modifier.size(26.dp).clip(CircleShape).background(P.card2).border(1.5.dp, P.line, CircleShape).clickable { freeFor = if (freeFor == m.id) "" else m.id }, contentAlignment = Alignment.Center) { T("🎨", 13.sp) }
                 }
+                if (freeFor == m.id) FreeColorPicker(m.color) { c -> Repo.putMember(m.copy(color = c)) }
+                Spacer(Modifier.height(6.dp))
             }
             GhostBtn("＋ メンバーを追加") { Repo.putMember(Member(uid(), "あたらしい人", PALETTE[q.members.size % PALETTE.size])) }
         }
@@ -319,5 +332,27 @@ service cloud.firestore {
             T("ホーム画面の何もないところを長押し →「ウィジェット」→「カゾスケ」を探す。\n・カゾスケ きょう：天気・きょうの予定・アドバイス・キャラ（タップで話す）\n・カゾスケ 週：月〜日の全員の予定（日曜は次の週）\n・カゾスケ 月：1か月の全員の予定\n・カゾスケ 買い物・ToDo：ウィジェット上でチェックできます", 13.sp)
             T("バージョン ${runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""}", 11.sp, P.sub, modifier = Modifier.padding(top = 6.dp))
         }
+    }
+}
+
+/** 色を自由に作る(色合い・あざやかさ・明るさ) */
+@Composable
+fun FreeColorPicker(cur: String, onPick: (String) -> Unit) {
+    val hsv = remember(cur) { FloatArray(3).also { android.graphics.Color.colorToHSV(parseColor(cur), it) } }
+    var h by remember(cur) { mutableStateOf(hsv[0]) }
+    var sat by remember(cur) { mutableStateOf(hsv[1]) }
+    var v by remember(cur) { mutableStateOf(hsv[2]) }
+    val c = Color.hsv(h, sat, v)
+    val hex = "#%06X".format(android.graphics.Color.HSVToColor(floatArrayOf(h, sat, v)) and 0xFFFFFF)
+    Column(Modifier.fillMaxWidth().padding(start = 38.dp, bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(P.card2).padding(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).clip(CircleShape).background(c)); Spacer(Modifier.width(10.dp))
+            Box(Modifier.clip(RoundedCornerShape(6.dp)).background(c).padding(horizontal = 8.dp, vertical = 3.dp)) { WhiteText("予定の見本", 13.sp, true) }
+            Spacer(Modifier.weight(1f)); T(hex, 12.sp, P.sub)
+        }
+        T("色合い", 11.sp, P.sub); Slider(h, { h = it }, valueRange = 0f..359f)
+        T("あざやかさ", 11.sp, P.sub); Slider(sat, { sat = it }, valueRange = 0.15f..1f)
+        T("明るさ", 11.sp, P.sub); Slider(v, { v = it }, valueRange = 0.35f..1f)
+        Btn("この色にする", hexColor(hex), Modifier.fillMaxWidth()) { onPick(hex) }
     }
 }

@@ -61,6 +61,22 @@ fun wishToEvent(q: Q, w: Wish): Event = Event(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WishScreen(q: Q, open: (Sheet) -> Unit) {
+    var page by remember { mutableStateOf("wish") }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(P.card).padding(4.dp)) {
+            listOf("wish" to "やりたい・行きたい", "list" to "チェックリスト").forEach { (k, n) ->
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (page == k) P.tintR else Color.Transparent).clickable { page = k }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                    T(n, 14.sp, if (page == k) P.rasp else P.sub, true)
+                }
+            }
+        }
+        if (page == "wish") WishList(q, open) else FreeLists(q)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun WishList(q: Q, open: (Sheet) -> Unit) {
     var kind by remember { mutableStateOf("") }
     var who by remember { mutableStateOf("") }
     var showDone by remember { mutableStateOf(false) }
@@ -207,5 +223,81 @@ fun WishHomeCard(q: Q, open: (Sheet) -> Unit) {
             }
         }
         Btn("リストを開く", P.rasp, Modifier.fillMaxWidth().padding(top = 8.dp)) { open(Sheet.GoTab("wish")) }
+    }
+}
+
+/* ============================ 自由に作れるチェックリスト ============================ */
+@Composable
+fun FreeLists(q: Q) {
+    var newTitle by remember { mutableStateOf("") }
+    var newMemo by remember { mutableStateOf("") }
+    var adding by remember { mutableStateOf(false) }
+    val lists = q.d.clists.filter { !it.deleted }.sortedByDescending { it.createdAt }
+    val me = if (q.viewer != "all") q.viewer else ""
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp).padding(bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        CardBox {
+            SecH("チェックリスト", "${lists.size}個")
+            T("「週末に食べたい物」「夏休みにしたいこと」など、タイトルを付けて自由にリストを作れます。家族みんなで見て、追加・チェックできます。", 12.5.sp, P.sub)
+            if (!adding) Btn("＋ 新しいリストを作る", P.rasp, Modifier.fillMaxWidth().padding(top = 8.dp)) { adding = true }
+            else {
+                Spacer(Modifier.height(8.dp))
+                Field(newTitle, { newTitle = it }, "タイトル（例: 週末に食べたい物）")
+                Field(newMemo, { newMemo = it }, "内容・メモ（なくてもよい）", singleLine = false, minLines = 2)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GhostBtn("やめる", Modifier.weight(1f), small = false) { adding = false }
+                    Btn("作る", P.rasp, Modifier.weight(2f)) {
+                        if (newTitle.isBlank()) return@Btn
+                        Repo.putCList(CList(uid(), newTitle.trim(), newMemo.trim(), me, createdAt = System.currentTimeMillis()))
+                        newTitle = ""; newMemo = ""; adding = false
+                    }
+                }
+            }
+        }
+        if (lists.isEmpty()) T("まだありません", 13.5.sp, P.sub)
+        lists.forEach { l -> FreeListCard(q, l, me) }
+    }
+}
+
+@Composable
+fun FreeListCard(q: Q, l: CList, me: String) {
+    var text by remember(l.id) { mutableStateOf("") }
+    var note by remember(l.id) { mutableStateOf("") }
+    var editing by remember(l.id) { mutableStateOf(false) }
+    var title by remember(l.id, l.title) { mutableStateOf(l.title) }
+    var memo by remember(l.id, l.memo) { mutableStateOf(l.memo) }
+    var armed by remember(l.id) { mutableStateOf(false) }
+    fun latest() = Repo.data.value.clists.firstOrNull { it.id == l.id } ?: l
+    CardBox {
+        if (!editing) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                T(l.title, 16.sp, bold = true, modifier = Modifier.weight(1f))
+                T("${l.items.count { !it.done }}/${l.items.size}", 12.sp, P.sub)
+                Spacer(Modifier.width(6.dp)); GhostBtn("編集") { editing = true }
+            }
+            if (l.memo.isNotBlank()) T(l.memo, 13.sp, P.sub, modifier = Modifier.padding(top = 4.dp))
+        } else {
+            Field(title, { title = it }, "タイトル")
+            Field(memo, { memo = it }, "内容・メモ", singleLine = false, minLines = 2)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Btn(if (armed) "もう一度で削除" else "リストを削除", P.tintR, Modifier.weight(1f), small = true) { if (!armed) armed = true else Repo.putCList(latest().copy(deleted = true)) }
+                Btn("保存", P.rasp, Modifier.weight(1f), small = true) { Repo.putCList(latest().copy(title = title.trim().ifBlank { l.title }, memo = memo.trim())); editing = false }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        l.items.sortedBy { if (it.done) 1 else 0 }.forEach { it0 ->
+            CheckRow(it0.done, it0.text, listOfNotNull(it0.note.ifBlank { null }, q.member(it0.by)?.name?.let { n -> "${n}が追加" }).joinToString("・"),
+                onDelete = { val c = latest(); Repo.putCList(c.copy(items = c.items.filter { x -> x.id != it0.id })) }) {
+                val c = latest(); Repo.putCList(c.copy(items = c.items.map { x -> if (x.id == it0.id) x.copy(done = !x.done) else x }))
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+            Field(text, { text = it }, "追加する（例: ハンバーグ）", Modifier.weight(1f)); Spacer(Modifier.width(6.dp))
+            Btn("追加", small = true) {
+                if (text.isBlank()) return@Btn
+                val c = latest(); Repo.putCList(c.copy(items = c.items + CItem(uid(), text.trim(), note.trim(), false, me))); text = ""; note = ""
+            }
+        }
+        Field(note, { note = it }, "ひとこと（なくてもよい。例: 駅前のお店）")
+        if (l.items.count { it.done } >= 2) GhostBtn("チェック済み${l.items.count { it.done }}件をまとめて削除") { val c = latest(); Repo.putCList(c.copy(items = c.items.filter { !it.done })) }
     }
 }

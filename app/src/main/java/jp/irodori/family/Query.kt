@@ -28,7 +28,9 @@ class Q(val d: AppData, val s: Settings, val w: Weather?, val pt: List<Todo> = e
     fun isBento(day: String): Boolean = lunchInfo(day).any { it.st == "b" }
     /** その日のマーク(お弁当＋予定の絵、重複なし、最大 max 個) */
     fun dayIcons(day: String, max: Int = 3): List<String> =
-        ((if (isBento(day)) listOf(fp.bentoIcon.ifBlank { "🍱" }) else emptyList()) + eventsOn(day).map { iconOf(it) }.filter { it.isNotBlank() }).distinct().take(max)
+        eventsOn(day).map { iconOf(it) }.filter { it.isNotBlank() }.distinct().take(max)
+    /** 日付の横に出すお弁当マーク(お弁当の日だけ) */
+    fun bentoMark(day: String): String = if (isBento(day)) fp.bentoIcon.ifBlank { "🍱" } else ""
     fun dayMark(day: String): DayMark? = d.days.firstOrNull { it.id == day && !it.deleted && it.color.isNotBlank() }
     /** その日の背景色: 手で付けた色 → お弁当の日の色 の順 */
     fun dayBg(day: String): String? = dayMark(day)?.color ?: if (fp.bentoBg.isNotBlank() && isBento(day)) fp.bentoBg else null
@@ -180,32 +182,86 @@ class Q(val d: AppData, val s: Settings, val w: Weather?, val pt: List<Todo> = e
 
     /** キャラが話す文 */
     fun talkMember(): String? = if (viewer != "all") viewer else (member(s.charMember)?.id ?: members.firstOrNull()?.id)
+    /** 家族の役割: メンバーの並び順(1番目=パパ、2番目=ママ、3番目以降=子ども) */
+    fun roleOf(mid: String?): String {
+        val i = members.indexOfFirst { it.id == mid }
+        return when { i < 0 -> "all"; i == 0 -> "papa"; i == 1 -> "mama"; else -> "kid" }
+    }
+    fun isOffDay(day: String): Boolean = dowOf(day) == 0 || dowOf(day) == 6 || HOLI.containsKey(day)
+    private fun spokenEv(e: Event, withWho: Boolean): String {
+        val who = if (withWho) names(e).let { if (it.isNotBlank()) "${it}は" else "" } else ""
+        if (e.allDay || e.start.isBlank()) return "$who${e.title}。"
+        val p = e.start.split(":"); val h = p[0].toIntOrNull() ?: 0; val mi = p.getOrNull(1)?.toIntOrNull() ?: 0
+        return "$who${h}時${if (mi > 0) "${mi}分" else ""}から${e.title}。"
+    }
+
+    /** キャラが話す文。パパ・ママ・子どもで中身を変える */
     fun talk(mid: String?, tomorrow: Boolean): String {
         val now = java.time.LocalDateTime.now()
         val day = if (tomorrow) plusDays(todayStr(), 1) else todayStr()
         val m = mid?.let { member(it) }
+        val role = roleOf(mid)
+        val off = isOffDay(day)
         val greet = when { now.hour < 10 -> "おはよう"; now.hour < 17 -> "こんにちは"; else -> "こんばんは" }
         val ww = if (tomorrow) "あした" else "きょう"
-        val evs = eventsOn(day, mid ?: "all")
+        val wx = wxDay(day)
         val sb = StringBuilder("$greet、${m?.name ?: "みんな"}！")
-        wxDay(day)?.let { sb.append("${ww}の天気は${WXL[wxKind(it.code)]}、最高${it.max.roundToInt()}度だよ。") }
-        if (evs.isEmpty()) sb.append("${ww}は予定がないよ。ゆっくりしようね。")
-        else {
-            sb.append("${ww}は${evs.size}つ予定があるよ。")
-            evs.take(5).forEach { e ->
-                if (e.allDay || e.start.isBlank()) sb.append("${e.title}。")
-                else { val p = e.start.split(":"); val h = p[0].toInt(); val mi = p.getOrNull(1)?.toIntOrNull() ?: 0; sb.append("${h}時${if (mi > 0) "${mi}分" else ""}から${e.title}。") }
+        val kids = members.drop(2)
+        fun todos(owner: String?) = d.todos.filter { !it.deleted && !it.done && it.due.isNotBlank() && it.due <= day && (owner == null || it.owner.isBlank() || it.owner == owner) } +
+            (if (owner == null || owner == viewer || viewer == "all") pt.filter { mineVisible(it) && !it.done && it.due.isNotBlank() && it.due <= day } else emptyList())
+        fun wxLine() { wx?.let { sb.append("${ww}の天気は${WXL[wxKind(it.code)]}、最高${it.max.roundToInt()}度。") } }
+
+        when (role) {
+            "papa" -> {
+                if (!off) {
+                    sb.append("${ww}はお仕事の日だね。")
+                    wxLine()
+                    val mine = eventsOn(day, mid!!).filter { mid in it.members }
+                    if (mine.isNotEmpty()) { sb.append("パパの予定は、"); mine.take(3).forEach { sb.append(spokenEv(it, false)) } }
+                    val fam = eventsOn(day, "all").filter { mid !in it.members }
+                    if (fam.isNotEmpty()) sb.append("家族は${fam.take(3).joinToString("、") { it.title }}があるよ。")
+                    dayAdvice(day, mine).firstOrNull()?.let { sb.append(it.text.replace(Regex("（.*?）"), "") + "。") }
+                    sb.append(if (tomorrow) "あしたもお仕事がんばってね。" else "いってらっしゃい、お仕事がんばってね！")
+                } else {
+                    sb.append(if (HOLI.containsKey(day)) "${ww}は${HOLI[day]}でお休みだね！" else "${ww}はお休みだね！")
+                    wxLine()
+                    val all = eventsOn(day, "all")
+                    if (all.isEmpty()) sb.append("家族の予定はないよ。") else { sb.append("家族の予定は、"); all.take(5).forEach { sb.append(spokenEv(it, true)) } }
+                    if (wx != null) sb.append(
+                        if (wx.pop >= 50) "雨が降りそうだから、おうちでゆっくりもいいね。"
+                        else if (wx.max >= 30) "暑いから、お出かけは水分をしっかりね。"
+                        else "お出かけ日和だよ。")
+                    d.wishes.filter { !it.deleted && !it.done }.maxByOrNull { (it.likes + it.by).distinct().size }?.let { sb.append("やりたいリストに「${it.title}」があるよ。") }
+                    sb.append("ゆっくり休んでね。")
+                }
             }
-            if (evs.size > 5) sb.append("ほかにもあるよ。")
+            "mama" -> {
+                wxLine()
+                if (wx != null) sb.append(if (wx.pop >= 50) "洗濯物は部屋干しがいいかも。" else if (wx.pop < 30) "洗濯日和だよ。" else "")
+                // 子どもたちのお弁当
+                val bento = lunchInfo(day, "all").filter { it.st == "b" }
+                if (bento.isNotEmpty()) sb.append("${bento.joinToString("と") { it.m.name }}はお弁当の日だよ。") else if (!off) sb.append("${ww}はお弁当はいらないよ。")
+                // 子どもたちの予定
+                val kidEvs = eventsOn(day, "all").filter { e -> e.members.any { id -> kids.any { it.id == id } } }
+                if (kidEvs.isEmpty()) sb.append("子どもたちの予定はないよ。") else { sb.append("子どもたちは、"); kidEvs.take(5).forEach { sb.append(spokenEv(it, true)) } }
+                val mine = eventsOn(day, mid!!).filter { mid in it.members }
+                if (mine.isNotEmpty()) { sb.append("ママの予定は、"); mine.take(3).forEach { sb.append(spokenEv(it, false)) } }
+                val tr = trip(); if (day == tr.d) shopRows(tr).filter { !it.on }.take(3).let { r -> if (r.isNotEmpty()) sb.append("お買い物は${r.joinToString("、") { it.name }}だよ。") }
+                todos(mid).take(2).forEach { sb.append("${it.text}も忘れずにね。") }
+                sb.append(if (tomorrow) "きょうもおつかれさま！" else "きょうもよろしくね！")
+            }
+            else -> {   // 子ども・全員
+                wxLine()
+                val evs = eventsOn(day, mid ?: "all")
+                if (evs.isEmpty()) sb.append("${ww}は予定がないよ。ゆっくりしようね。")
+                else { sb.append("${ww}は${evs.size}つ予定があるよ。"); evs.take(5).forEach { sb.append(spokenEv(it, role == "all")) } }
+                val bento = lunchInfo(day, mid ?: "all").filter { it.st == "b" }
+                if (bento.isNotEmpty()) sb.append(if (role == "kid") "お弁当の日だよ。忘れないでね。" else bento.joinToString("と") { it.m.name } + "はお弁当の日だよ。")
+                todos(mid).take(2).forEach { sb.append("${it.text}を忘れずにね。") }
+                dayAdvice(day, evs).firstOrNull()?.let { sb.append(it.text.replace(Regex("（.*?）"), "") + "。") }
+                sb.append(if (tomorrow) "準備できたら早めに寝よう！" else if (off) "楽しい一日にしてね！" else "いってらっしゃい！")
+            }
         }
-        val li = lunchInfo(day, mid ?: "all")
-        val bento = li.filter { it.st == "b" }
-        val kyu = li.firstOrNull { it.st == "k" && it.menu.isNotBlank() }
-        if (bento.isNotEmpty()) sb.append(if (mid != null) "お弁当の日だよ。忘れないでね。" else bento.joinToString("と") { it.m.name } + "はお弁当の日だよ。")
-        d.todos.filter { !it.deleted && !it.done && it.due.isNotBlank() && it.due <= day && (mid == null || it.owner.isBlank() || it.owner == mid) }
-            .take(2).forEach { sb.append("${it.text}を忘れずにね。") }
-        dayAdvice(day, evs).firstOrNull()?.let { sb.append(it.text.replace(Regex("（.*?）"), "") + "。") }
-        sb.append(if (tomorrow) "準備できたら早めに寝よう！" else "いってらっしゃい！")
         return sb.toString().replace("。。", "。")
     }
 }

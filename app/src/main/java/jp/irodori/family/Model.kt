@@ -131,6 +131,22 @@ data class AppData(
     val wishes: List<Wish> = emptyList(),
     val days: List<DayMark> = emptyList(),
     val fprefs: List<FamilyPrefs> = emptyList(),
+    val clists: List<CList> = emptyList(),
+)
+
+/** 自由に作れるチェックリスト(例: 週末に食べたい物)。家族で共有 */
+@Serializable
+data class CItem(val id: String, val text: String = "", val note: String = "", val done: Boolean = false, val by: String = "")
+@Serializable
+data class CList(
+    val id: String,
+    val title: String = "",
+    val memo: String = "",
+    val by: String = "",
+    val items: List<CItem> = emptyList(),
+    val createdAt: Long = 0,
+    val updatedAt: Long = 0,
+    val deleted: Boolean = false,
 )
 
 /** 家族で共有する見た目の設定(マークの絵・お弁当の日の色) */
@@ -234,6 +250,8 @@ data class Settings(
     /** 個別のお知らせを受け取る範囲: mine=自分に関係する予定 / all=全員 / off=受け取らない */
     val remindScope: String = "mine",
     /** 裏での読み込み: どこまで読んだか(更新時刻) と、最後に読めた時刻 */
+    /** 予定の見た目: solid=人の色で塗りつぶし＋白文字(2人なら上下で色分け) / tint=うす塗り＋左に色の線 */
+    val evStyle: String = "solid",
     val syncCursor: Long = 0,
     val lastSync: Long = 0,
     /** お弁当の日のマークと、その日の背景色(空なら色なし)。この端末だけ */

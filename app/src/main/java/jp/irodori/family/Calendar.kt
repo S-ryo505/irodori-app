@@ -34,6 +34,9 @@ import androidx.compose.ui.composed
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -125,12 +128,33 @@ fun Legend(q: Q) {
 @Composable
 fun EvLabel(q: Q, e: Event, size: TextUnit, withTime: Boolean, onClick: (() -> Unit)? = null) {
     val cols = q.colors(e).map { hexColor(it) }
+    if (q.s.evStyle != "tint") {
+        // 人の色で塗りつぶし・白文字。2人以上は上下で色を分ける
+        var m = Modifier.fillMaxWidth().padding(vertical = 1.dp).clip(RoundedCornerShape(4.dp)).drawBehind {
+            val h = size.height / cols.size
+            cols.forEachIndexed { i, c -> drawRect(c, topLeft = Offset(0f, i * h), size = Size(size.width, h + 1f)) }
+        }
+        if (onClick != null) m = m.clickable(onClick = onClick)
+        Column(m.padding(horizontal = 3.dp, vertical = 2.dp)) {
+            if (withTime) WhiteText(if (e.allDay || e.start.isBlank()) "終日" else e.start.removePrefix("0"), size * 0.92f, false)
+            WhiteText(e.title, size, true)
+        }
+        return
+    }
     var m = Modifier.fillMaxWidth().padding(vertical = 1.dp).clip(RoundedCornerShape(4.dp)).stripes(cols, cols.first().copy(alpha = 0.16f))
     if (onClick != null) m = m.clickable(onClick = onClick)
     Column(m.padding(start = (3 * cols.size + 2).dp, end = 1.dp, top = 1.dp, bottom = 2.dp)) {
         if (withTime) T(if (e.allDay || e.start.isBlank()) "終日" else e.start.removePrefix("0"), size * 0.92f, P.sub)
         T(e.title, size, P.ink, true)
     }
+}
+
+/** 白抜き文字(うすい影つきで、明るい色の上でも読みやすく) */
+@Composable
+fun WhiteText(text: String, size: TextUnit, bold: Boolean) {
+    androidx.compose.material3.Text(text, style = androidx.compose.ui.text.TextStyle(fontSize = size, color = Color.White,
+        fontWeight = if (bold) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal, lineHeight = size * 1.25f,
+        shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.35f), Offset(0f, 1f), 2f)))
 }
 
 @Composable
@@ -173,7 +197,7 @@ fun MonthView(q: Q, cursor: String, onPick: (String) -> Unit, modifier: Modifier
                                         T("${dd.dayOfMonth}", 12.sp, if (ds == t) Color.White else dayCol(ds, P).copy(alpha = if (other) 0.45f else 1f), true)
                                     }
                                     Spacer(Modifier.weight(1f))
-                                    if (wx != null) T(wxEmoji(wx.code), 11.sp)
+                                    q.bentoMark(ds).takeIf { it.isNotBlank() }?.let { T(it, 14.sp) }
                                 }
                                 val icons = q.dayIcons(ds)
                                 if (icons.isNotEmpty()) T(icons.joinToString(""), 14.sp)
@@ -260,7 +284,7 @@ fun WeekView(q: Q, cursor: String, onPick: (String) -> Unit, open: (Sheet) -> Un
                     }
                     T(wx?.let { wxEmoji(it.code) } ?: " ", 13.sp)
                     T(wx?.let { "${it.pop}%" } ?: " ", 9.5.sp, P.rain)
-                    T(q.dayIcons(ds).joinToString("").ifBlank { " " }, 14.sp)
+                    T((q.bentoMark(ds) + q.dayIcons(ds).joinToString("")).ifBlank { " " }, 14.sp)
                 }
             }
         }

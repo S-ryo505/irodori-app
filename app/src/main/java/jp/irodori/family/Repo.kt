@@ -99,6 +99,7 @@ object Repo {
     fun putShop(e: ShopItem) { val x = e.copy(updatedAt = now()); commit("shop", x, ShopItem.serializer(), x.id, x.updatedAt) { it.copy(shop = it.shop.upsert(x) { v -> v.id }) } }
 
     fun putFamilyPrefs(e: FamilyPrefs) { val x = e.copy(updatedAt = now()); commit("fprefs", x, FamilyPrefs.serializer(), x.id, x.updatedAt) { it.copy(fprefs = it.fprefs.upsert(x) { v -> v.id }) } }
+    fun putCList(e: CList) { val x = e.copy(updatedAt = now()); commit("clists", x, CList.serializer(), x.id, x.updatedAt) { it.copy(clists = it.clists.upsert(x) { v -> v.id }) } }
     fun putDay(e: DayMark) { val x = e.copy(updatedAt = now()); commit("days", x, DayMark.serializer(), x.id, x.updatedAt) { it.copy(days = it.days.upsert(x) { v -> v.id }) } }
     fun putWish(e: Wish) { val x = e.copy(updatedAt = now()); commit("wishes", x, Wish.serializer(), x.id, x.updatedAt) { it.copy(wishes = it.wishes.upsert(x) { v -> v.id }) } }
     fun deleteEvent(e: Event, auto: Boolean = false) = putEvent(e.copy(deleted = true, autoRemoved = auto, images = emptyList()))
@@ -177,6 +178,7 @@ object Repo {
             "todos" -> json.decodeFromString(Todo.serializer(), js).let { x -> merge(d.todos, x, { it.id }, { it.updatedAt })?.let { d.copy(todos = it) } }
             "shop" -> json.decodeFromString(ShopItem.serializer(), js).let { x -> merge(d.shop, x, { it.id }, { it.updatedAt })?.let { d.copy(shop = it) } }
             "fprefs" -> json.decodeFromString(FamilyPrefs.serializer(), js).let { x -> merge(d.fprefs, x, { it.id }, { it.updatedAt })?.let { d.copy(fprefs = it) } }
+            "clists" -> json.decodeFromString(CList.serializer(), js).let { x -> merge(d.clists, x, { it.id }, { it.updatedAt })?.let { d.copy(clists = it) } }
             "days" -> json.decodeFromString(DayMark.serializer(), js).let { x -> merge(d.days, x, { it.id }, { it.updatedAt })?.let { d.copy(days = it) } }
             "wishes" -> json.decodeFromString(Wish.serializer(), js).let { x -> merge(d.wishes, x, { it.id }, { it.updatedAt })?.let { d.copy(wishes = it) } }
             else -> null
@@ -195,6 +197,7 @@ object Repo {
         d.todos.forEach { o += Ent("todos", it.id, json.encodeToString(Todo.serializer(), it), it.updatedAt, it.sample) }
         d.shop.forEach { o += Ent("shop", it.id, json.encodeToString(ShopItem.serializer(), it), it.updatedAt, it.sample) }
         d.fprefs.forEach { o += Ent("fprefs", it.id, json.encodeToString(FamilyPrefs.serializer(), it), it.updatedAt, false) }
+        d.clists.forEach { o += Ent("clists", it.id, json.encodeToString(CList.serializer(), it), it.updatedAt, false) }
         d.days.forEach { o += Ent("days", it.id, json.encodeToString(DayMark.serializer(), it), it.updatedAt, false) }
         d.wishes.forEach { o += Ent("wishes", it.id, json.encodeToString(Wish.serializer(), it), it.updatedAt, false) }
         return o
