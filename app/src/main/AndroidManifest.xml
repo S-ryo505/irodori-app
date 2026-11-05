@@ -49,10 +49,6 @@
             </intent-filter>
         </receiver>
 
-        <receiver android:name=".TodayWidgetReceiver" android:exported="true" android:label="@string/w_today">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_today" />
-        </receiver>
         <receiver android:name=".WeekWidgetReceiver" android:exported="true" android:label="@string/w_week">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_week" />
@@ -61,25 +57,13 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_month" />
         </receiver>
-        <receiver android:name=".MonthWx2WidgetReceiver" android:exported="true" android:label="@string/w_month2">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_month2" />
-        </receiver>
-        <receiver android:name=".MonthTodayWidgetReceiver" android:exported="true" android:label="@string/w_month_today">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_month_today" />
-        </receiver>
-        <receiver android:name=".MonthCharaWidgetReceiver" android:exported="true" android:label="@string/w_month_chara">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_month_chara" />
-        </receiver>
-        <receiver android:name=".ThreeWeekWidgetReceiver" android:exported="true" android:label="@string/w_3week">
-            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_3week" />
-        </receiver>
         <receiver android:name=".CharaWidgetReceiver" android:exported="true" android:label="@string/w_chara">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_chara" />
+        </receiver>
+        <receiver android:name=".MonthOnlyWidgetReceiver" android:exported="true" android:label="@string/w_month_only">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_month_only" />
         </receiver>
         <receiver android:name=".ListWidgetReceiver" android:exported="true" android:label="@string/w_list">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>

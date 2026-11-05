@@ -255,6 +255,8 @@ data class Settings(
     /** 裏での読み込み: どこまで読んだか(更新時刻) と、最後に読めた時刻 */
     /** 予定の見た目: solid=人の色で塗りつぶし＋白文字(2人なら上下で色分け) / tint=うす塗り＋左に色の線 */
     val evStyle: String = "solid",
+    /** 週ウィジェットで見る週の数(1 か 3) */
+    val wWeeks: Int = 1,
     val syncCursor: Long = 0,
     val lastSync: Long = 0,
     /** お弁当の日のマークと、その日の背景色(空なら色なし)。この端末だけ */

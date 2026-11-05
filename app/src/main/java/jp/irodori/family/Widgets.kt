@@ -60,13 +60,9 @@ object Widgets {
         job = Repo.scope.launch { delay(400); refreshNow(ctx) }
     }
     suspend fun refreshNow(ctx: Context) {
-        runCatching { TodayWidget().updateAll(ctx) }
-        runCatching { WeekWidget().updateAll(ctx) }
         runCatching { MonthWidget().updateAll(ctx) }
-        runCatching { MonthWx2Widget().updateAll(ctx) }
-        runCatching { MonthTodayWidget().updateAll(ctx) }
-        runCatching { MonthCharaWidget().updateAll(ctx) }
-        runCatching { ThreeWeekWidget().updateAll(ctx) }
+        runCatching { WeekWidget().updateAll(ctx) }
+        runCatching { MonthOnlyWidget().updateAll(ctx) }
         runCatching { CharaWidget().updateAll(ctx) }
         runCatching { ListWidget().updateAll(ctx) }
     }
@@ -80,6 +76,7 @@ private object WC {
     val rasp = DayNight(day = Color(0xFFC8457A), night = Color(0xFFE47AA3))
     val teal = DayNight(day = Color(0xFF2E84A3), night = Color(0xFF5FB3CF))
     val orange = DayNight(day = Color(0xFFE98D4D), night = Color(0xFFF2A26C))
+    val yellow = DayNight(day = Color(0xFFFFF4CC), night = Color(0xFF3A3424))
     val rain = DayNight(day = Color(0xFF4C86C0), night = Color(0xFF7FB0E0))
     val todayBg = DayNight(day = Color(0xFFFDEDE0), night = Color(0xFF3A2C24))
     val hol = DayNight(day = Color(0xFFD0536E), night = Color(0xFFEE7D93))
@@ -187,8 +184,9 @@ private fun TodayContent(q: Q, chara: ImageProvider, speak: androidx.glance.acti
     }
 }
 
-/* ============ 週(月〜日の7列、全員分) ============ */
+/* ============ ② 週(月〜日、1週 ⇄ 3週を切り替え)＋天気1.5段 ============ */
 class WeekWidget : GlanceAppWidget() {
+    override val sizeMode: androidx.glance.appwidget.SizeMode = androidx.glance.appwidget.SizeMode.Exact
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         Repo.init(context)
         Repo.scope.launch { Wx.refresh(context, false) }
@@ -197,6 +195,14 @@ class WeekWidget : GlanceAppWidget() {
     }
 }
 class WeekWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = WeekWidget() }
+
+class WeeksAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        Repo.init(context)
+        Repo.setSettings(refreshWidgets = false) { it.copy(wWeeks = if (it.wWeeks == 3) 1 else 3) }
+        WeekWidget().updateAll(context)
+    }
+}
 
 /** 週の始まりは月曜。きょうが日曜なら次の週を出す */
 fun weekStart(ds: String): String {
@@ -242,7 +248,7 @@ private fun EvTile(q: Q, e: Event, modifier: GlanceModifier, size: Int) {
 
 /** 1日のマスの中身。入る行数(fit)に合わせて、帯 → 短い札(横2列) → 日付の横に「+n」の順で切り替える */
 @Composable
-private fun CellBody(q: Q, ds: String, label: String, dim: Boolean, top: String, fit: Int, size: Int) {
+private fun CellBody(q: Q, ds: String, label: String, dim: Boolean, top: String, fit: Int, size: Int, withTime: Boolean = false, lines: Int = 1) {
     val evs = q.eventsOn(ds)
     val full = evs.size <= fit
     val cap = fit * 2
@@ -254,7 +260,7 @@ private fun CellBody(q: Q, ds: String, label: String, dim: Boolean, top: String,
             if (hidden > 0) Text("+$hidden", style = ts(size, WC.rasp, true), modifier = GlanceModifier.padding(start = 1.dp))
             if (top.isNotBlank()) Text(top, style = ts(size + 3), maxLines = 1)
         }
-        if (full) evs.forEach { e -> EvChip(q, e, false, size, 1) }
+        if (full) evs.forEach { e -> EvChip(q, e, withTime, size, lines) }
         else tiles.chunked(2).forEach { pair ->
             Row(GlanceModifier.fillMaxWidth().padding(top = 1.dp)) {
                 pair.forEachIndexed { i, e -> EvTile(q, e, GlanceModifier.defaultWeight().padding(end = if (i == 0) 1.dp else 0.dp), size) }
@@ -289,34 +295,77 @@ private fun DayNum(ds: String, text: String, size: Int, dim: Boolean = false) {
 
 @Composable
 private fun WeekContent(q: Q) {
-    val st = weekStart(todayStr())
-    Column(GlanceModifier.fillMaxSize().background(WC.bg).cornerRadius(22.dp).padding(8.dp).clickable(openApp)) {
-        Row(GlanceModifier.fillMaxWidth().padding(bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("${mdShort(st)}〜${mdShort(plusDays(st, 6))}", style = ts(12, WC.sub, true), modifier = GlanceModifier.padding(start = 4.dp))
+    val st = weekStart(todayStr()); val t = todayStr()
+    val weeks = if (q.s.wWeeks == 3) 3 else 1
+    val one = weeks == 1
+    val cellH = (androidx.glance.LocalSize.current.height.value - (12f + 30f + 14f + WX_H)) / weeks
+    // 1週のときは時刻つき・2行の帯(1本約24dp)、3週のときは1行の帯(約13dp)
+    val fit = if (one) ((cellH - 18f) / 24f).toInt().coerceIn(0, 8) else fitRows(cellH)
+    Column(GlanceModifier.fillMaxSize().background(WC.bg).cornerRadius(22.dp).padding(6.dp)) {
+        Row(GlanceModifier.fillMaxWidth().padding(bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("${mdShort(st)}〜${mdShort(plusDays(st, weeks * 7L - 1))}", style = ts(12, WC.ink, true), maxLines = 1, modifier = GlanceModifier.padding(start = 4.dp).clickable(openApp))
             Spacer(GlanceModifier.defaultWeight())
+            Text(if (one) "1週⇄3週" else "3週⇄1週", style = ts(10, WC.rasp, true), modifier = GlanceModifier.background(WC.todayBg).cornerRadius(10.dp).padding(horizontal = 6.dp, vertical = 3.dp)
+                .clickable(actionRunCallback<WeeksAction>()))
+            Spacer(GlanceModifier.width(3.dp))
             RefreshChip(q)
             WhoChips(q)
         }
-        Row(GlanceModifier.fillMaxWidth().defaultWeight()) {
-            for (i in 0 until 7) {
-                val ds = plusDays(st, i.toLong())
-                val evs = q.eventsOn(ds)
-                val top = (q.wxDay(ds)?.let { wxEmoji(it.code) } ?: "") + q.bentoMark(ds) + q.dayIcons(ds).joinToString("")
-                DayCell(q, ds, GlanceModifier.defaultWeight().fillMaxHeight().padding(horizontal = 1.dp), 10) {
-                    Column(GlanceModifier.fillMaxSize().padding(2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        DayNum(ds, "${DAY[dowOf(ds)]}${parseD(ds).dayOfMonth}", 10)
-                        if (top.isNotBlank()) Text(top, style = ts(14), maxLines = 1)
-                        val n = if (top.isNotBlank()) 7 else 8
-                        evs.take(n).forEach { e -> EvChip(q, e, true, 9, 3) }
-                        if (evs.size > n) Text("+${evs.size - n}", style = ts(9, WC.sub, true))
+        Column(GlanceModifier.fillMaxWidth().defaultWeight().clickable(openApp)) {
+            Row(GlanceModifier.fillMaxWidth()) {
+                for (i in 0 until 7) { val w = (i + 1) % 7; Text(DAY[w], style = ts(9, if (w == 0) WC.hol else if (w == 6) WC.sat else WC.sub, true), modifier = GlanceModifier.defaultWeight()) }
+            }
+            for (wk in 0 until weeks) {
+                Row(GlanceModifier.fillMaxWidth().defaultWeight()) {
+                    for (i in 0 until 7) {
+                        val ds = plusDays(st, (wk * 7 + i).toLong()); val dd = parseD(ds)
+                        val label = if (dd.dayOfMonth == 1 || (wk == 0 && i == 0)) "${dd.monthValue}/${dd.dayOfMonth}" else "${dd.dayOfMonth}"
+                        val top = q.bentoMark(ds) + q.dayIcons(ds, 2).joinToString("")
+                        DayCell(q, ds, GlanceModifier.defaultWeight().fillMaxHeight().padding(1.dp), 8) {
+                            CellBody(q, ds, label, ds < t, top, fit, 9, withTime = one, lines = if (one) 2 else 1)
+                        }
                     }
                 }
             }
         }
-        Spacer(GlanceModifier.height(4.dp))
-        WxStrip(q)
+        Spacer(GlanceModifier.height(3.dp))
+        WxCompact(q)
     }
 }
+
+/** 天気1.5段: 上=3時間おき8つ(いま〜21時間後)、下=きょうから7日(最高|最低) */
+@Composable
+private fun WxCompact(q: Q) {
+    val hs = q.hourlyFrom(3, 8)
+    val t = todayStr()
+    if (hs.isEmpty() || q.wxDay(t) == null) { Text("天気: 🔄を押すか、アプリを開くと表示されます", style = ts(10, WC.sub)); return }
+    Column(GlanceModifier.fillMaxWidth().background(WC.bg2).cornerRadius(12.dp).padding(horizontal = 3.dp, vertical = 1.dp)) {
+        Row(GlanceModifier.fillMaxWidth()) {
+            hs.forEachIndexed { idx, (day, h) ->
+                val now = idx == 0
+                Column(GlanceModifier.defaultWeight().then(if (now) GlanceModifier.background(WC.todayBg).cornerRadius(8.dp) else GlanceModifier), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(if (now) "いま" else if (day != t && h.h < 3) "翌${h.h}時" else "${h.h}時", style = ts(9, if (now) WC.rasp else WC.sub, now), maxLines = 1)
+                    Text(wxEmoji(h.code), style = ts(13))
+                    Text("${h.t.roundToInt()}°", style = ts(10, WC.ink, true))
+                    Text("${h.pop}%", style = ts(9, if (h.pop >= 50) WC.rasp else WC.rain, h.pop >= 50))
+                }
+            }
+        }
+        Row(GlanceModifier.fillMaxWidth().padding(top = 1.dp)) {
+            for (i in 0 until 7) {
+                val ds = plusDays(t, i.toLong()); val d = q.wxDay(ds)
+                Column(GlanceModifier.defaultWeight().then(if (i == 0) GlanceModifier.background(WC.todayBg).cornerRadius(8.dp) else GlanceModifier), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(if (i == 0) "きょう" else "${parseD(ds).dayOfMonth}${DAY[dowOf(ds)]}", style = ts(9, if (i == 0) WC.rasp else dayColor(ds), true), maxLines = 1)
+                    if (d != null) {
+                        Text(wxEmoji(d.code), style = ts(13))
+                        Text("${d.max.roundToInt()}|${d.min.roundToInt()}", style = ts(9, WC.ink, true), maxLines = 1)
+                    } else Text("-", style = ts(9, WC.sub))
+                }
+            }
+        }
+    }
+}
+private const val WX_H = 98f   // 天気1.5段のおよその高さ(dp)
 
 /** 時間ごとの天気(3時間おき8つ): 時刻・天気・気温・降水確率。上に要約1行 */
 @Composable
@@ -340,8 +389,8 @@ private fun WxStrip(q: Q) {
     }
 }
 
-/* ============ 月(6週×7日、全員分を小さく) 4種類 ============
- * 0: 月＋天気1行 / 1: 月＋天気2行(時間ごと＋1週間) / 2: きょうの予定＋月＋天気1行 / 3: 話すキャラ＋月＋天気1行 */
+/* ============ ① 1か月＋天気1.5段 / ③ 1か月だけ ============
+ * variant 0: 天気あり / 4: 天気なし (1〜3 は前の版の名残。ホーム画面からは選べない) */
 open class MonthBase(private val variant: Int) : GlanceAppWidget() {
     override val sizeMode: androidx.glance.appwidget.SizeMode = androidx.glance.appwidget.SizeMode.Exact
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -357,10 +406,12 @@ class MonthWidget : MonthBase(0)
 class MonthWx2Widget : MonthBase(1)
 class MonthTodayWidget : MonthBase(2)
 class MonthCharaWidget : MonthBase(3)
+class MonthOnlyWidget : MonthBase(4)
 class MonthWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = MonthWidget() }
 class MonthWx2WidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = MonthWx2Widget() }
 class MonthTodayWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = MonthTodayWidget() }
 class MonthCharaWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = MonthCharaWidget() }
+class MonthOnlyWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = MonthOnlyWidget() }
 
 @Composable
 private fun MonthContent(q: Q, variant: Int, chara: ImageProvider?, speak: androidx.glance.action.Action) {
@@ -368,7 +419,7 @@ private fun MonthContent(q: Q, variant: Int, chara: ImageProvider?, speak: andro
     val start = first.minusDays(dow(first).toLong())
     val weeks = (dow(first) + now.lengthOfMonth() + 6) / 7
     // 上の見出し・天気などの高さを引いて、1行(1週)の高さを出す
-    val fixed = 12f + 30f + 14f + 75f + when (variant) { 1 -> 64f; 2 -> 46f; 3 -> 58f; else -> 0f }
+    val fixed = 12f + 30f + 14f + when (variant) { 4 -> 0f; 0 -> WX_H; else -> 75f } + when (variant) { 1 -> 64f; 2 -> 46f; 3 -> 58f; else -> 0f }
     val fit = fitRows((androidx.glance.LocalSize.current.height.value - fixed) / weeks)
     Column(GlanceModifier.fillMaxSize().background(WC.bg).cornerRadius(22.dp).padding(6.dp)) {
         Row(GlanceModifier.fillMaxWidth().padding(bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -396,9 +447,8 @@ private fun MonthContent(q: Q, variant: Int, chara: ImageProvider?, speak: andro
                 }
             }
         }
-        Spacer(GlanceModifier.height(3.dp))
-        WxStrip(q)
-        if (variant == 1) { Spacer(GlanceModifier.height(2.dp)); WeekWxRow(q) }
+        if (variant == 0) { Spacer(GlanceModifier.height(3.dp)); WxCompact(q) }
+        else if (variant in 1..3) { Spacer(GlanceModifier.height(3.dp)); WxStrip(q); if (variant == 1) { Spacer(GlanceModifier.height(2.dp)); WeekWxRow(q) } }
     }
 }
 
@@ -558,13 +608,13 @@ fun charaBubble(q: Q): String {
 
 @Composable
 private fun CharaContent(q: Q, chara: ImageProvider, speak: androidx.glance.action.Action) {
-    Row(GlanceModifier.fillMaxSize().background(WC.bg).cornerRadius(22.dp).padding(horizontal = 6.dp, vertical = 4.dp).clickable(speak), verticalAlignment = Alignment.CenterVertically) {
-        Image(chara, contentDescription = "キャラ", modifier = GlanceModifier.size(46.dp))
-        Spacer(GlanceModifier.width(4.dp))
-        Column(GlanceModifier.defaultWeight()) {
+    Row(GlanceModifier.fillMaxSize().background(WC.yellow).cornerRadius(18.dp).padding(horizontal = 4.dp, vertical = 1.dp).clickable(speak), verticalAlignment = Alignment.CenterVertically) {
+        Image(chara, contentDescription = "キャラ", modifier = GlanceModifier.width(64.dp).fillMaxHeight(), contentScale = androidx.glance.layout.ContentScale.Fit)
+        Spacer(GlanceModifier.width(3.dp))
+        Column(GlanceModifier.defaultWeight(), verticalAlignment = Alignment.CenterVertically) {
             Text(charaBubble(q), style = ts(11, WC.ink, true), maxLines = 2,
-                modifier = GlanceModifier.fillMaxWidth().background(WC.bg2).cornerRadius(10.dp).padding(horizontal = 6.dp, vertical = 3.dp))
-            Text("🔊 タップでお話し", style = ts(9, WC.rasp, true), modifier = GlanceModifier.padding(start = 4.dp, top = 2.dp))
+                modifier = GlanceModifier.fillMaxWidth().background(WC.bg).cornerRadius(10.dp).padding(horizontal = 6.dp, vertical = 2.dp))
+            Text("🔊 タップでお話し", style = ts(9, WC.rasp, true), modifier = GlanceModifier.padding(start = 4.dp, top = 1.dp))
         }
     }
 }
@@ -573,7 +623,7 @@ private fun CharaContent(q: Q, chara: ImageProvider, speak: androidx.glance.acti
 class ListWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         Repo.init(context)
-        val q = Repo.q()
+        val q = Repo.q().forWidget()
         provideContent { ListContent(q) }
     }
 }
@@ -593,13 +643,9 @@ class ViewerAction : ActionCallback {
         val v = parameters[KEY_V] ?: "all"
         Repo.setSettings(refreshWidgets = false) { it.copy(widgetViewer = if (it.widgetViewer == v) "all" else v) }
         coroutineScope {
-            launch { runCatching { TodayWidget().updateAll(context) } }
-            launch { runCatching { WeekWidget().updateAll(context) } }
             launch { runCatching { MonthWidget().updateAll(context) } }
-            launch { runCatching { MonthWx2Widget().updateAll(context) } }
-            launch { runCatching { MonthTodayWidget().updateAll(context) } }
-            launch { runCatching { MonthCharaWidget().updateAll(context) } }
-            launch { runCatching { ThreeWeekWidget().updateAll(context) } }
+            launch { runCatching { WeekWidget().updateAll(context) } }
+            launch { runCatching { MonthOnlyWidget().updateAll(context) } }
             launch { runCatching { CharaWidget().updateAll(context) } }
         }
     }
@@ -663,21 +709,31 @@ private sealed class LRow { data class Head(val t: String) : LRow(); data class 
 private fun ListContent(q: Q) {
     val tr = q.trip()
     val rows = mutableListOf<LRow>()
-    rows += LRow.Head("お買い物 ${md(tr.d)}${if (tr.isToday) "（きょう）" else ""}")
     val sr = q.shopRows(tr)
-    sr.forEach { rows += LRow.Item(it.kind, it.id, it.name, it.sub, it.on) }
-    if (sr.isEmpty()) rows += LRow.Head("　買うものはありません")
-    rows += LRow.Head("ToDo")
+    if (sr.isNotEmpty()) {
+        rows += LRow.Head("🛒 お買い物 ${md(tr.d)}${if (tr.isToday) "（きょう）" else ""}")
+        sr.forEach { rows += LRow.Item(it.kind, it.id, it.name, it.sub, it.on) }
+    }
     val td = q.todos(false)
-    td.forEach { rows += LRow.Item("todo", it.id, it.text, q.todoSub(it), it.done) }
-    if (td.isEmpty()) rows += LRow.Head("　ToDoはありません")
+    if (td.isNotEmpty()) {
+        rows += LRow.Head("✅ みんなのToDo")
+        td.forEach { rows += LRow.Item("todo", it.id, it.text, q.todoSub(it), it.done) }
+    }
+    val mine = q.todos(false, mine = true)
+    if (mine.isNotEmpty()) {
+        rows += LRow.Head("🔒 自分のToDo")
+        mine.forEach { rows += LRow.Item("todo", it.id, it.text, q.todoSub(it), it.done) }
+    }
     Column(GlanceModifier.fillMaxSize().background(WC.bg).cornerRadius(22.dp).padding(10.dp)) {
         Row(GlanceModifier.fillMaxWidth()) { Spacer(GlanceModifier.defaultWeight()); RefreshChip(q) }
-        LazyColumn(GlanceModifier.fillMaxWidth().defaultWeight()) {
+        if (rows.isEmpty()) {
+            Box(GlanceModifier.fillMaxWidth().defaultWeight().clickable(openApp), contentAlignment = Alignment.Center) {
+                Text("なにもないよ！", style = ts(15, WC.sub, true))
+            }
+        } else LazyColumn(GlanceModifier.fillMaxWidth().defaultWeight()) {
             items(rows) { r ->
                 when (r) {
-                    is LRow.Head -> Text(r.t, style = ts(if (r.t.startsWith("　")) 11 else 13, if (r.t.startsWith("　")) WC.sub else WC.ink, true),
-                        modifier = GlanceModifier.padding(top = 4.dp, bottom = 2.dp).clickable(openApp))
+                    is LRow.Head -> Text(r.t, style = ts(13, WC.ink, true), modifier = GlanceModifier.padding(top = 4.dp, bottom = 2.dp).clickable(openApp))
                     is LRow.Item -> CheckBox(
                         checked = r.on,
                         onCheckedChange = actionRunCallback<ToggleAction>(actionParametersOf(KEY_ID to r.id, KEY_KIND to r.kind)),

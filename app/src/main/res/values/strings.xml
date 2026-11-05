@@ -1,12 +1,12 @@
 <resources>
     <string name="app_name">カゾスケ</string>
     <string name="w_today">カゾスケ きょう</string>
-    <string name="w_week">カゾスケ 週</string>
-    <string name="w_month">カゾスケ 月</string>
+    <string name="w_week">カゾスケ 週＋天気</string>
+    <string name="w_month">カゾスケ 1か月＋天気</string>
     <string name="w_list">カゾスケ 買い物・ToDo</string>
     <string name="w_today_desc">天気・きょうの予定・アドバイス・キャラ</string>
-    <string name="w_week_desc">1週間の全員の予定</string>
-    <string name="w_month_desc">1か月の全員の予定</string>
+    <string name="w_week_desc">1週間か3週間の予定(タップで切り替え)と天気</string>
+    <string name="w_month_desc">1か月の予定と天気(3時間おき・7日間)</string>
     <string name="w_list_desc">お買い物チェックリストとToDo</string>
     <string name="w_month2">カゾスケ 月＋天気2行</string>
     <string name="w_month_today">カゾスケ 月＋きょうの予定</string>
@@ -18,4 +18,6 @@
     <string name="w_3week_desc">きょうから3週間の予定と、いま・7日分の天気</string>
     <string name="w_chara">カゾスケ キャラ</string>
     <string name="w_chara_desc">タップするとキャラが予定をお話し</string>
+    <string name="w_month_only">カゾスケ 1か月</string>
+    <string name="w_month_only_desc">1か月の予定だけ</string>
 </resources>
