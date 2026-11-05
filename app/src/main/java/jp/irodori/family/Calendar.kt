@@ -131,8 +131,9 @@ fun EvLabel(q: Q, e: Event, size: TextUnit, withTime: Boolean, onClick: (() -> U
     if (q.s.evStyle != "tint") {
         // 人の色で塗りつぶし・白文字。2人以上は上下で色を分ける
         var m = Modifier.fillMaxWidth().padding(vertical = 1.dp).clip(RoundedCornerShape(4.dp)).drawBehind {
-            val h = size.height / cols.size
-            cols.forEachIndexed { i, c -> drawRect(c, topLeft = Offset(0f, i * h), size = Size(size.width, h + 1f)) }
+            val area = this.size
+            val h = area.height / cols.size
+            cols.forEachIndexed { i, c -> drawRect(c, topLeft = Offset(0f, i * h), size = Size(area.width, h + 1f)) }
         }
         if (onClick != null) m = m.clickable(onClick = onClick)
         Column(m.padding(horizontal = 3.dp, vertical = 2.dp)) {
