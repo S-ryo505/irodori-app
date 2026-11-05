@@ -73,6 +73,14 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_month_chara" />
         </receiver>
+        <receiver android:name=".ThreeWeekWidgetReceiver" android:exported="true" android:label="@string/w_3week">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_3week" />
+        </receiver>
+        <receiver android:name=".CharaWidgetReceiver" android:exported="true" android:label="@string/w_chara">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_chara" />
+        </receiver>
         <receiver android:name=".ListWidgetReceiver" android:exported="true" android:label="@string/w_list">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_list" />

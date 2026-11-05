@@ -139,7 +139,7 @@ fun App(act: MainActivity) {
                     androidx.compose.foundation.Image(painterResource(R.drawable.logo), null, Modifier.size(30.dp))
                     Spacer(Modifier.width(6.dp))
                     T("カゾスケ", 19.sp, bold = true); Spacer(Modifier.width(8.dp))
-                    T(mapOf("home" to "きょう", "wish" to "やりたい", "imp" to "とりこみ", "list" to "リスト", "set" to "設定")[tab] ?: "", 13.sp, P.sub)
+                    T(mapOf("home" to "ホーム", "wish" to "やりたい", "imp" to "とりこみ", "list" to "リスト", "set" to "設定")[tab] ?: "", 13.sp, P.sub)
                 }
                 Spacer(Modifier.weight(1f))
                 val v = q.member(q.viewer)
@@ -151,7 +151,7 @@ fun App(act: MainActivity) {
         },
         bottomBar = {
             NavigationBar(containerColor = P.card) {
-                listOf(Triple("cal", "予定", Icons.Filled.DateRange), Triple("home", "きょう", Icons.Filled.Home), Triple("wish", "やりたい", Icons.Filled.Favorite),
+                listOf(Triple("cal", "予定", Icons.Filled.DateRange), Triple("home", "ホーム", Icons.Filled.Home), Triple("wish", "やりたい", Icons.Filled.Favorite),
                     Triple("list", "リスト", Icons.Filled.ShoppingCart), Triple("imp", "とりこみ", Icons.Filled.Create), Triple("set", "設定", Icons.Filled.Settings)).forEach { (k, n, ic) ->
                     NavigationBarItem(selected = tab == k, onClick = { tab = k }, icon = { Icon(ic, n) }, label = { Text(n, fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(selectedIconColor = P.rasp, selectedTextColor = P.rasp, indicatorColor = P.tintR, unselectedIconColor = P.sub, unselectedTextColor = P.sub))

@@ -143,7 +143,7 @@ object Repo {
             val ex = data.value.events.firstOrNull { it.id == id }
             if (ex != null && !(ex.deleted && ex.autoRemoved)) continue
             putEvent(Event(id = id, date = ds, start = l.start, end = l.end, title = l.name, members = l.who(), location = l.location,
-                outdoor = l.outdoor, cat = "lesson", seriesId = l.id, sample = l.sample, remind = l.remind, comments = ex?.comments ?: emptyList()))
+                outdoor = l.outdoor, cat = "lesson", seriesId = l.id, sample = l.sample, remind = l.remind, short = l.short, comments = ex?.comments ?: emptyList()))
             n++
         }
         return n
@@ -157,7 +157,7 @@ object Repo {
         val t = todayStr()
         data.value.events.filter { it.seriesId == l.id && it.date >= t && !it.edited && !it.deleted }.forEach { e ->
             if (l.deleted || dowOf(e.date) !in l.days || (l.skipHoliday && HOLI.containsKey(e.date))) deleteEvent(e, auto = true)
-            else putEvent(e.copy(title = l.name, start = l.start, end = l.end, location = l.location, outdoor = l.outdoor, members = l.who(), remind = l.remind))
+            else putEvent(e.copy(title = l.name, start = l.start, end = l.end, location = l.location, outdoor = l.outdoor, members = l.who(), remind = l.remind, short = l.short))
         }
         if (!l.deleted && l.auto) genLesson(l, t, plusDays(t, 42))
     }

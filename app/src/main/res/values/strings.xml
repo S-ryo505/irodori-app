@@ -14,4 +14,8 @@
     <string name="w_month2_desc">月の予定・時間ごとの天気・1週間の天気</string>
     <string name="w_month_today_desc">きょうの予定・月の予定・天気</string>
     <string name="w_month_chara_desc">話すキャラ・月の予定・天気</string>
+    <string name="w_3week">カゾスケ 3週間＋天気</string>
+    <string name="w_3week_desc">きょうから3週間の予定と、いま・7日分の天気</string>
+    <string name="w_chara">カゾスケ キャラ</string>
+    <string name="w_chara_desc">タップするとキャラが予定をお話し</string>
 </resources>

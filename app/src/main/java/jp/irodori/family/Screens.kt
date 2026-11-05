@@ -245,7 +245,7 @@ fun WeekCard(q: Q, open: (Sheet) -> Unit) {
     }
 }
 
-/** きょう画面の編集: 長押しして上下にドラッグで並べ替え、－で非表示、＋で追加。この端末だけに保存 */
+/** ホーム画面の編集: 長押しして上下にドラッグで並べ替え、－で非表示、＋で追加。この端末だけに保存 */
 @Composable
 fun HomeEditor(q: Q, done: () -> Unit) {
     val order = remember { mutableStateListOf<String>().apply { addAll(homeVisible(q.s)) } }
@@ -254,7 +254,7 @@ fun HomeEditor(q: Q, done: () -> Unit) {
     val itemH = 58.dp
     val px = with(LocalDensity.current) { itemH.toPx() }
     CardBox(outline = P.rasp) {
-        SecH("きょう画面の編集") { Btn("完了", P.rasp, small = true) { saveHome(order.toList()); done() } }
+        SecH("ホーム画面の編集") { Btn("完了", P.rasp, small = true) { saveHome(order.toList()); done() } }
         T("≡ の行を長押しして上下に動かすと順番が変わります（▲▼でも動かせます）。－で表示しない、下の＋で追加。この端末だけに保存されます。", 12.sp, P.sub, modifier = Modifier.padding(bottom = 8.dp))
         order.toList().forEach { k ->
             key(k) {
@@ -737,7 +737,7 @@ fun ManyDaysCard(q: Q) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GhostBtn("閉じる", small = false) { opened = false }
             Btn("${plans.size}件をまとめて登録", P.rasp, Modifier.weight(1f), enabled = plans.isNotEmpty()) {
-                plans.forEach { p -> Repo.putEvent(Event(uid(), p.date, start = p.start, end = p.end, allDay = p.start.isBlank(), title = p.name, members = p.who, location = p.loc, cat = p.cat)) }
+                plans.forEach { p -> Repo.putEvent(Event(uid(), p.date, short = q.d.lessons.firstOrNull { !it.deleted && it.name == p.name }?.short ?: "", start = p.start, end = p.end, allDay = p.start.isBlank(), title = p.name, members = p.who, location = p.loc, cat = p.cat)) }
                 msg = "${plans.size}件を登録しました"; plans.clear()
             }
         }

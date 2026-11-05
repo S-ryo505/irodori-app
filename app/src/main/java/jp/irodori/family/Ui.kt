@@ -31,6 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -232,4 +234,18 @@ fun dataImage(src: String): ImageBitmap? = remember(src) {
 /** 予定の帯(メンバーの色を左に縦線で並べる。複数人なら複数本) */
 fun Modifier.stripes(colors: List<Color>, tint: Color): Modifier = this.background(tint).drawBehind {
     colors.forEachIndexed { i, c -> drawRect(c, topLeft = Offset(i * 3.dp.toPx(), 0f), size = Size(3.dp.toPx(), size.height)) }
+}
+
+/** たためるカード(一度設定したら触らない項目用)。見出しをタップで開く・閉じる */
+@Composable
+fun FoldCard(title: String, sub: String = "", startOpen: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    var open by androidx.compose.runtime.saveable.rememberSaveable(title) { androidx.compose.runtime.mutableStateOf(startOpen) }
+    CardBox {
+        Row(Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            T(title, 15.sp, bold = true, modifier = Modifier.weight(1f))
+            if (sub.isNotBlank()) { T(sub, 12.sp, P.sub, maxLines = 1, modifier = Modifier.padding(end = 8.dp)) }
+            Box(Modifier.size(28.dp).clip(CircleShape).background(P.card2), contentAlignment = Alignment.Center) { T(if (open) "－" else "＋", 16.sp, P.sub, true) }
+        }
+        if (open) { Spacer(Modifier.height(8.dp)); content() }
+    }
 }

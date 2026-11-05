@@ -124,7 +124,7 @@ fun SettingsScreen(q: Q) {
             T("2人以上の予定は、塗りつぶしでは上下に色を分け、うす塗りでは左に色の線を並べます。", 11.5.sp, P.sub, modifier = Modifier.padding(bottom = 8.dp))
             T("開いたときの画面", 12.sp, P.sub, true)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
-                listOf("month" to "カレンダー（月）", "week" to "カレンダー（週）", "day" to "カレンダー（日）", "home" to "きょう").forEach { (k, n) ->
+                listOf("month" to "カレンダー（月）", "week" to "カレンダー（週）", "day" to "カレンダー（日）", "home" to "ホーム").forEach { (k, n) ->
                     Box(Modifier.clip(CircleShape).background(if (q.s.startView == k) P.tintR else P.card2).clickable { Repo.setSettings { it.copy(startView = k) } }.padding(horizontal = 12.dp, vertical = 6.dp)) {
                         T(n, 13.sp, if (q.s.startView == k) P.rasp else P.ink, true)
                     }
@@ -178,9 +178,8 @@ fun SettingsScreen(q: Q) {
             T("ホーム画面のウィジェットには、HTML・3Dは表示できません（Androidの仕組み上、画像と文字だけ）。ウィジェットのキャラを変えたいときは「ウィジェット用画像」でPNGなどを選んでください。自作HTMLキャラは、話している間 {type:'irodori-speak', speaking:true} のメッセージを受け取れます。", 12.sp, P.sub)
         }
 
-        CardBox {
+        FoldCard("マーク（絵）と日の色", "家族で共有") {
             var pickFor by remember { mutableStateOf<Int?>(null) }   // -1=お弁当, 0..=ルールの番号
-            SecH("マーク（絵）と日の色", "家族で共有")
             T("家族みんなの画面に同じ設定が反映されます（共有をつないでいる場合）。カレンダーとウィジェットの日付の横に出る絵です。予定名に言葉が入っていると、その絵が出ます（「|」で区切ると複数の言葉）。予定ごとに選ぶこともできます（予定の編集画面）。", 12.sp, P.sub)
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -244,10 +243,9 @@ fun SettingsScreen(q: Q) {
             T("届かない端末は、Androidの設定 → アプリ → カゾスケ → バッテリー を「制限なし」にしてください。", 12.sp, P.sub)
         }
 
-        CardBox {
+        FoldCard("天気", q.w?.place ?: "未取得", startOpen = q.w == null) {
             var city by remember { mutableStateOf("") }
             var res by remember { mutableStateOf<List<Wx.Place>>(emptyList()) }
-            SecH("天気", q.w?.place ?: "未取得")
             Toggle("現在地の天気を使う", q.s.useGps) { v ->
                 Repo.setSettings { it.copy(useGps = v) }
                 if (v) locPerm.launch(Manifest.permission.ACCESS_COARSE_LOCATION) else scope.launch { Wx.refresh(ctx, true) }
@@ -279,10 +277,9 @@ fun SettingsScreen(q: Q) {
             T("天気データ: Open-Meteo（無料・キー不要）。アドバイスは降水確率・風速・気温によるルール判定です。", 12.sp, P.sub)
         }
 
-        CardBox {
+        FoldCard("家族で共有（Firebase）", syncStatus, startOpen = !syncStatus.startsWith("つながって")) {
             var cfg by remember(q.s.fbConfig) { mutableStateOf(q.s.fbConfig) }
             var fam by remember(q.s.familyId) { mutableStateOf(q.s.familyId) }
-            SecH("家族で共有（Firebase）")
             T(syncStatus, 13.sp, if (syncStatus.startsWith("つながって")) P.teal else if (syncStatus.startsWith("エラー")) P.rasp else P.sub, true)
             Spacer(Modifier.height(6.dp))
             Field(cfg, { cfg = it }, "Firebaseの設定（google-services.json の中身）", singleLine = false, minLines = 3)
@@ -316,9 +313,8 @@ service cloud.firestore {
             T("（タップでコピー）家族IDを知っている人は読み書きできます。家族IDは長いランダム文字のまま使い、家族以外に教えないでください。Web版いろどりと同じFirebase・同じ家族IDなら、Web版とも共有できます。", 12.sp, P.sub)
         }
 
-        CardBox {
+        FoldCard("データ") {
             var armed by remember { mutableStateOf(false) }
-            SecH("データ")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 GhostBtn("書き出し(JSON)") { exportDoc.launch("irodori-${todayStr()}.json") }
                 GhostBtn("読み込み(Web版の書き出しもOK)") { importDoc.launch(arrayOf("application/json", "*/*")) }
@@ -327,9 +323,8 @@ service cloud.firestore {
             T("書き出しにはキャラクターは含まれません。", 12.sp, P.sub, modifier = Modifier.padding(top = 6.dp))
         }
 
-        CardBox {
-            SecH("ウィジェットの置き方")
-            T("ホーム画面の何もないところを長押し →「ウィジェット」→「カゾスケ」を探す。\n・カゾスケ きょう：天気・きょうの予定・アドバイス・キャラ（タップで話す）\n・カゾスケ 週：月〜日の全員の予定（日曜は次の週）\n・カゾスケ 月：1か月の全員の予定\n・カゾスケ 買い物・ToDo：ウィジェット上でチェックできます", 13.sp)
+        FoldCard("ウィジェットの置き方") {
+            T("ホーム画面の何もないところを長押し →「ウィジェット」→「カゾスケ」を探す。\n・カゾスケ きょう：天気・きょうの予定・アドバイス・キャラ（タップで話す）\n・カゾスケ 週：月〜日の全員の予定（日曜は次の週）\n・カゾスケ 月：1か月の全員の予定\n・カゾスケ 買い物・ToDo：ウィジェット上でチェックできます\n・カゾスケ 3週間＋天気：きょうから3週間の予定と、いま・7日分の天気を1行で\n・カゾスケ キャラ：横2マスの小さなキャラ。タップでお話し", 13.sp)
             T("バージョン ${runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""}", 11.sp, P.sub, modifier = Modifier.padding(top = 6.dp))
         }
     }

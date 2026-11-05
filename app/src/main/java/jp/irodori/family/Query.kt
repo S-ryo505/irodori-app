@@ -25,6 +25,8 @@ class Q(val d: AppData, val s: Settings, val w: Weather?, val pt: List<Todo> = e
     fun iconOf(e: Event): String = e.icon.ifBlank {
         fp.marks.firstOrNull { r -> r.icon.isNotBlank() && r.word.split("|", "｜").any { w -> w.isNotBlank() && e.title.contains(w.trim()) } }?.icon ?: ""
     }
+    /** 短い札の文字(略称があれば略称、なければ頭の2文字) */
+    fun shortOf(e: Event): String = e.short.ifBlank { e.title.replace(" ", "").replace("　", "").take(2) }
     fun isBento(day: String): Boolean = lunchInfo(day).any { it.st == "b" }
     /** その日のマーク(お弁当＋予定の絵、重複なし、最大 max 個) */
     fun dayIcons(day: String, max: Int = 3): List<String> =

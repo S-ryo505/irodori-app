@@ -205,6 +205,7 @@ fun EventView(q: Q, id: String, close: () -> Unit, open: (Sheet) -> Unit) {
 fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
     val ctx = LocalContext.current
     var title by remember { mutableStateOf(ev.title) }
+    var short by remember { mutableStateOf(ev.short) }
     var date by remember { mutableStateOf(ev.date) }
     var allDay by remember { mutableStateOf(ev.allDay) }
     var start by remember { mutableStateOf(ev.start) }
@@ -243,6 +244,7 @@ fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
         Spacer(Modifier.height(10.dp))
     }
     Field(title, { title = it }, "タイトル", placeholder = "例: 歯医者、運動会、部活")
+    Field(short, { short = it.take(3) }, "略称（ウィジェットの短い札用・2文字くらい。なくてもよい）", placeholder = "例: 歯医")
     T("だれの予定（だれも選ばないと家族みんな）", 12.sp, P.sub, true); Spacer(Modifier.height(4.dp))
     MemberChips(q, mem.toSet(), { id -> if (id in mem) mem.remove(id) else mem += id })
     Spacer(Modifier.height(10.dp))
@@ -291,7 +293,7 @@ fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
             val ad = allDay || start.isBlank()
             val base = ev.copy(title = title.trim(), date = date, allDay = ad, start = if (ad) "" else start, end = if (ad) "" else end,
                 endDate = if (ad && endDate > date) endDate else "", location = loc.trim(), cat = cat, outdoor = outdoor, memo = memo.trim(),
-                members = mem.toList(), images = imgs.toList(), remind = rem.sorted(), icon = icon, edited = ev.seriesId.isNotBlank() || ev.edited)
+                members = mem.toList(), images = imgs.toList(), remind = rem.sorted(), icon = icon, short = short.trim(), edited = ev.seriesId.isNotBlank() || ev.edited)
             if (isNew && rep > 0) {
                 val sid = uid(); var d = date; var n = 0
                 while (d <= until && n < 60) { Repo.putEvent(base.copy(id = uid(), date = d, seriesId = sid, edited = false)); d = plusDays(d, rep.toLong()); n++ }
@@ -308,6 +310,7 @@ fun LessonEditor(q: Q, l0: Lesson?, close: () -> Unit) {
     val ctx = LocalContext.current
     val l = l0 ?: Lesson(id = uid(), member = if (q.viewer != "all") q.viewer else q.members.firstOrNull()?.id ?: "")
     var name by remember { mutableStateOf(l.name) }
+    var short by remember { mutableStateOf(l.short) }
     val who = remember { mutableStateListOf<String>().apply { addAll(l.who()) } }
     val days = remember { mutableStateListOf<Int>().apply { addAll(l.days) } }
     var start by remember { mutableStateOf(l.start) }
@@ -321,6 +324,7 @@ fun LessonEditor(q: Q, l0: Lesson?, close: () -> Unit) {
     var armed by remember { mutableStateOf(false) }
     Title(if (l0 == null) "習い事を追加" else "習い事を編集")
     Field(name, { name = it }, "名前", placeholder = "例: ピアノ、スイミング、塾")
+    Field(short, { short = it.take(3) }, "略称（ウィジェットの短い札用・2文字くらい）", placeholder = "例: チア")
     T("だれ（複数OK：姉妹で同じ習い事など）", 12.sp, P.sub, true); Spacer(Modifier.height(4.dp))
     MemberChips(q, who.toSet(), { id -> if (id in who) who.remove(id) else who += id })
     Spacer(Modifier.height(10.dp))
@@ -351,7 +355,7 @@ fun LessonEditor(q: Q, l0: Lesson?, close: () -> Unit) {
             if (name.isBlank()) { err = "名前を入れてください"; return@Btn }
             if (days.isEmpty()) { err = "曜日を選んでください"; return@Btn }
             if (who.isEmpty()) { err = "だれの習い事か選んでください（複数OK）"; return@Btn }
-            val x = l.copy(name = name.trim(), member = who.first(), members = who.toList(), days = days.sorted(), start = start, end = end, location = loc.trim(), outdoor = outdoor, auto = auto, skipHoliday = hol, remind = rem.sorted(), sample = false)
+            val x = l.copy(name = name.trim(), short = short.trim(), member = who.first(), members = who.toList(), days = days.sorted(), start = start, end = end, location = loc.trim(), outdoor = outdoor, auto = auto, skipHoliday = hol, remind = rem.sorted(), sample = false)
             Repo.putLesson(x); Repo.syncSeries(x); close()
         }
     }

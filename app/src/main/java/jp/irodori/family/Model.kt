@@ -39,6 +39,8 @@ data class Event(
     val remind: List<Int> = emptyList(),
     /** この予定のマーク(絵文字)。空ならマークのルールで自動 */
     val icon: String = "",
+    /** 略称(ウィジェットの短い札用。空なら頭の2文字) */
+    val short: String = "",
     val seriesId: String = "",
     val edited: Boolean = false,
     val sample: Boolean = false,
@@ -62,6 +64,7 @@ data class Lesson(
     val auto: Boolean = true,
     val skipHoliday: Boolean = true,
     val remind: List<Int> = emptyList(),
+    val short: String = "",
     val sample: Boolean = false,
     val updatedAt: Long = 0,
     val deleted: Boolean = false,
