@@ -244,7 +244,6 @@ fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
         Spacer(Modifier.height(10.dp))
     }
     Field(title, { title = it }, "タイトル", placeholder = "例: 歯医者、運動会、部活")
-    Field(short, { short = it.take(3) }, "略称（ウィジェットの短い札用・2文字くらい。なくてもよい）", placeholder = "例: 歯医")
     T("だれの予定（だれも選ばないと家族みんな）", 12.sp, P.sub, true); Spacer(Modifier.height(4.dp))
     MemberChips(q, mem.toSet(), { id -> if (id in mem) mem.remove(id) else mem += id })
     Spacer(Modifier.height(10.dp))
@@ -256,21 +255,7 @@ fun EventEditor(q: Q, ev: Event, isNew: Boolean, close: () -> Unit) {
         PickBox("開始", start, Modifier.weight(1f)) { pickTime(ctx, start) { start = it; if (end.isBlank() || end <= it) end = "%02d:%s".format(minOf(23, it.take(2).toInt() + 1), it.drop(3)) } }
         PickBox("終了", end, Modifier.weight(1f)) { pickTime(ctx, end.ifBlank { start }) { end = it } }
     } else PickBox("終了日（何日か続くとき）", if (endDate.isBlank()) "" else md(endDate)) { pickDate(ctx, endDate.ifBlank { date }) { endDate = it } }
-    Field(loc, { loc = it }, "場所")
-    T("種類", 12.sp, P.sub, true)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 4.dp)) {
-        CATS.forEach { (k, n) -> Box(Modifier.clip(CircleShape).background(if (cat == k) P.tintR else P.card2).clickable { cat = k }.padding(horizontal = 12.dp, vertical = 6.dp)) { T(n, 13.sp, if (cat == k) P.rasp else P.ink, true) } }
-    }
-    Toggle("屋外の予定（雨のアドバイスを強めに出す）", outdoor) { outdoor = it }
-    Field(memo, { memo = it }, "メモ（持ち物、集合場所など）", singleLine = false, minLines = 2)
-    T("写真（4枚まで）", 12.sp, P.sub, true)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
-        imgs.forEachIndexed { i, src ->
-            Box { dataImage(src)?.let { Image(it, "写真", Modifier.size(80.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop) }
-                Box(Modifier.align(Alignment.TopEnd).size(24.dp).clip(CircleShape).background(P.ink).clickable { imgs.removeAt(i) }, contentAlignment = Alignment.Center) { T("×", 13.sp, P.card, true) } }
-        }
-        if (imgs.size < 4) GhostBtn("＋ 写真") { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
-    }
+    // 場所・種類・屋外・メモ・写真・略称の入力欄は、家族の希望でなくした(取り込み・編集前の値はそのまま残る)
     RemindChips(rem)
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
         T("カレンダーのマーク", 12.sp, P.sub, true, Modifier.weight(1f))

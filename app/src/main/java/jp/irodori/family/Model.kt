@@ -257,6 +257,8 @@ data class Settings(
     val evStyle: String = "solid",
     /** 週ウィジェットで見る週の数(1 か 3) */
     val wWeeks: Int = 1,
+    /** 月ウィジェットで見ている月(yyyy-MM)。空なら今月 */
+    val wMonth: String = "",
     val syncCursor: Long = 0,
     val lastSync: Long = 0,
     /** お弁当の日のマークと、その日の背景色(空なら色なし)。この端末だけ */

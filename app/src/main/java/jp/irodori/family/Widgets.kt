@@ -415,7 +415,7 @@ class MonthOnlyWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceA
 
 @Composable
 private fun MonthContent(q: Q, variant: Int, chara: ImageProvider?, speak: androidx.glance.action.Action) {
-    val now = LocalDate.now(); val first = now.withDayOfMonth(1)
+    val now = widgetMonth(q); val first = now
     val start = first.minusDays(dow(first).toLong())
     val weeks = (dow(first) + now.lengthOfMonth() + 6) / 7
     // 上の見出し・天気などの高さを引いて、1行(1週)の高さを出す
@@ -423,7 +423,7 @@ private fun MonthContent(q: Q, variant: Int, chara: ImageProvider?, speak: andro
     val fit = fitRows((androidx.glance.LocalSize.current.height.value - fixed) / weeks)
     Column(GlanceModifier.fillMaxSize().background(WC.bg).cornerRadius(22.dp).padding(6.dp)) {
         Row(GlanceModifier.fillMaxWidth().padding(bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("${now.year}年${now.monthValue}月", style = ts(13, WC.ink, true), modifier = GlanceModifier.padding(start = 4.dp).clickable(openApp))
+            MonthNav(now)
             Spacer(GlanceModifier.defaultWeight())
             RefreshChip(q)
             WhoChips(q)
@@ -680,10 +680,45 @@ class RefreshAction : ActionCallback {
     }
 }
 
+/* ---------- 月ウィジェットの月の切り替え: 「10月◀ 26年11月 ▶12月」 ---------- */
+private val KEY_DIR = ActionParameters.Key<Int>("dir")
+/** 表示する月の1日(設定が空なら今月) */
+fun widgetMonth(q: Q): LocalDate = runCatching { LocalDate.parse(q.s.wMonth + "-01") }.getOrNull() ?: LocalDate.now().withDayOfMonth(1)
+
+class MonthNavAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        Repo.init(context)
+        val dir = parameters[KEY_DIR] ?: 0
+        val cur = widgetMonth(Repo.q())
+        val next = if (dir == 0) LocalDate.now().withDayOfMonth(1) else cur.plusMonths(dir.toLong())
+        val thisMonth = LocalDate.now().withDayOfMonth(1)
+        Repo.setSettings(refreshWidgets = false) { it.copy(wMonth = if (next == thisMonth) "" else next.toString().take(7)) }
+        coroutineScope {
+            launch { runCatching { MonthWidget().updateAll(context) } }
+            launch { runCatching { MonthOnlyWidget().updateAll(context) } }
+        }
+    }
+}
+
+@Composable
+private fun MonthNav(m: LocalDate) {
+    val prev = m.minusMonths(1); val next = m.plusMonths(1)
+    val isNow = m == LocalDate.now().withDayOfMonth(1)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("${prev.monthValue}月◀", style = ts(10, WC.sub, true), modifier = GlanceModifier.padding(horizontal = 4.dp, vertical = 3.dp)
+            .clickable(actionRunCallback<MonthNavAction>(actionParametersOf(KEY_DIR to -1))))
+        // 今月以外を見ているときは、月の名前をタップで今月に戻る(ピンク表示)。今月ならアプリを開く
+        Text("${m.year % 100}年${m.monthValue}月", style = ts(13, if (isNow) WC.ink else WC.rasp, true),
+            modifier = GlanceModifier.padding(horizontal = 2.dp).clickable(if (isNow) openApp else actionRunCallback<MonthNavAction>(actionParametersOf(KEY_DIR to 0))))
+        Text("▶${next.monthValue}月", style = ts(10, WC.sub, true), modifier = GlanceModifier.padding(horizontal = 4.dp, vertical = 3.dp)
+            .clickable(actionRunCallback<MonthNavAction>(actionParametersOf(KEY_DIR to 1))))
+    }
+}
+
 @Composable
 private fun RefreshChip(q: Q) {
     val t = q.s.lastSync
-    val label = if (t > 0) "🔄" + java.text.SimpleDateFormat("H:mm", java.util.Locale.JAPAN).format(java.util.Date(t)) else "🔄"
+    val label = "🔄"
     Box(GlanceModifier.padding(end = 4.dp)) {
         Text(label, style = ts(10, WC.sub, true), modifier = GlanceModifier.background(WC.bg2).cornerRadius(10.dp).padding(horizontal = 6.dp, vertical = 3.dp)
             .clickable(actionRunCallback<RefreshAction>()))
