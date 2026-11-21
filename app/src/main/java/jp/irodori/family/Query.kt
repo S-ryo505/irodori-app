@@ -12,9 +12,21 @@ class Q(val d: AppData, val s: Settings, val w: Weather?, val pt: List<Todo> = e
 
     // ---------- 予定 ----------
     fun pass(e: Event, v: String = viewer): Boolean = v == "all" || e.members.isEmpty() || v in e.members
-    fun eventsOn(day: String, v: String = viewer): List<Event> = d.events
-        .filter { !it.deleted && it.date <= day && it.endDate.ifBlank { it.date } >= day && pass(it, v) }
-        .sortedWith(compareBy<Event>({ if (it.allDay || it.start.isBlank()) 0 else 1 }, { it.start }, { it.title }))
+    /* 予定を「日付 → その日の予定」に1回だけ仕分けておく(見る人ごと)。以前は日ごとに全予定を探し直していて重かった */
+    private val buckets = HashMap<String, Map<String, List<Event>>>()
+    private val evOrder = compareBy<Event>({ if (it.allDay || it.start.isBlank()) 0 else 1 }, { it.start }, { it.title })
+    private fun bucket(v: String): Map<String, List<Event>> = buckets.getOrPut(v) {
+        val m = HashMap<String, MutableList<Event>>()
+        for (e in d.events) {
+            if (e.deleted || !pass(e, v)) continue
+            var dd = runCatching { parseD(e.date) }.getOrNull() ?: continue
+            val end = e.endDate.takeIf { it.isNotBlank() && it > e.date }?.let { runCatching { parseD(it) }.getOrNull() } ?: dd
+            var n = 0
+            while (!dd.isAfter(end) && n < 120) { m.getOrPut(dd.toString()) { mutableListOf() }.add(e); dd = dd.plusDays(1); n++ }
+        }
+        m.mapValues { (_, l) -> l.sortedWith(evOrder) }
+    }
+    fun eventsOn(day: String, v: String = viewer): List<Event> = bucket(v)[day] ?: emptyList()
     fun colors(e: Event): List<String> = e.members.mapNotNull { member(it)?.color }.ifEmpty { listOf("#7DAA92") }
     fun color(e: Event): String = colors(e).first()
     fun names(e: Event): String = e.members.mapNotNull { member(it)?.name }.joinToString("・")

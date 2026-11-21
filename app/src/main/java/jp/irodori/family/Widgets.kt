@@ -196,11 +196,14 @@ class WeekWidget : GlanceAppWidget() {
 }
 class WeekWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = WeekWidget() }
 
+private val KEY_WEEKS = ActionParameters.Key<Int>("weeks")
 class WeeksAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         Repo.init(context)
-        Repo.setSettings(refreshWidgets = false) { it.copy(wWeeks = if (it.wWeeks == 3) 1 else 3) }
-        WeekWidget().updateAll(context)
+        val to = parameters[KEY_WEEKS] ?: 1
+        if (Repo.settings.value.wWeeks == to) return
+        Repo.setSettings(refreshWidgets = false) { it.copy(wWeeks = to) }
+        updateTappedFirst(context, glanceId, WeekWidget())
     }
 }
 
@@ -278,8 +281,9 @@ private fun fitRows(cellHeightDp: Float): Int = ((cellHeightDp - 18f) / 13f).toI
 private fun DayCell(q: Q, ds: String, modifier: GlanceModifier, radius: Int, content: @Composable () -> Unit) {
     val isT = ds == todayStr()
     val bg: ColorProvider = q.dayBg(ds)?.let { ColorProvider(Color(parseColor(it)).copy(alpha = 0.45f)) } ?: if (isT) WC.todayBg else WC.bg2
+    if (!isT) { Box(modifier) { Box(GlanceModifier.fillMaxSize().background(bg).cornerRadius(radius.dp)) { content() } }; return }
     Box(modifier) {
-        Box(GlanceModifier.fillMaxSize().background(if (isT) WC.rasp else bg).cornerRadius(radius.dp).padding(if (isT) 2.dp else 0.dp)) {
+        Box(GlanceModifier.fillMaxSize().background(WC.rasp).cornerRadius(radius.dp).padding(2.dp)) {
             Box(GlanceModifier.fillMaxSize().background(bg).cornerRadius((radius - 1).dp)) { content() }
         }
     }
@@ -306,7 +310,7 @@ private fun WeekContent(q: Q) {
             Text("${mdShort(st)}〜${mdShort(plusDays(st, weeks * 7L - 1))}", style = ts(12, WC.ink, true), maxLines = 1, modifier = GlanceModifier.padding(start = 4.dp).clickable(openApp))
             Spacer(GlanceModifier.defaultWeight())
             Text(if (one) "1週⇄3週" else "3週⇄1週", style = ts(10, WC.rasp, true), modifier = GlanceModifier.background(WC.todayBg).cornerRadius(10.dp).padding(horizontal = 6.dp, vertical = 3.dp)
-                .clickable(actionRunCallback<WeeksAction>()))
+                .clickable(actionRunCallback<WeeksAction>(actionParametersOf(KEY_WEEKS to if (one) 3 else 1))))
             Spacer(GlanceModifier.width(3.dp))
             RefreshChip(q)
             WhoChips(q)
@@ -641,13 +645,9 @@ class ViewerAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         Repo.init(context)
         val v = parameters[KEY_V] ?: "all"
-        Repo.setSettings(refreshWidgets = false) { it.copy(widgetViewer = if (it.widgetViewer == v) "all" else v) }
-        coroutineScope {
-            launch { runCatching { MonthWidget().updateAll(context) } }
-            launch { runCatching { WeekWidget().updateAll(context) } }
-            launch { runCatching { MonthOnlyWidget().updateAll(context) } }
-            launch { runCatching { CharaWidget().updateAll(context) } }
-        }
+        if (Repo.settings.value.widgetViewer == v) return
+        Repo.setSettings(refreshWidgets = false) { it.copy(widgetViewer = v) }
+        updateTappedFirst(context, glanceId, MonthWidget(), WeekWidget(), MonthOnlyWidget(), CharaWidget())
     }
 }
 
@@ -680,38 +680,45 @@ class RefreshAction : ActionCallback {
     }
 }
 
+/** 押されたウィジェットを真っ先に描き直し、同じ種類の残りをあとから描き直す */
+suspend fun updateTappedFirst(context: Context, tapped: GlanceId, vararg widgets: GlanceAppWidget) {
+    val mgr = androidx.glance.appwidget.GlanceAppWidgetManager(context)
+    val all = widgets.map { w -> w to runCatching { mgr.getGlanceIds(w.javaClass) }.getOrDefault(emptyList()) }
+    all.firstOrNull { (_, ids) -> tapped in ids }?.let { (w, _) -> runCatching { w.update(context, tapped) } }
+    coroutineScope {
+        all.forEach { (w, ids) -> ids.filter { it != tapped }.forEach { id -> launch { runCatching { w.update(context, id) } } } }
+    }
+}
+
 /* ---------- 月ウィジェットの月の切り替え: 「10月◀ 26年11月 ▶12月」 ---------- */
-private val KEY_DIR = ActionParameters.Key<Int>("dir")
+private val KEY_TO = ActionParameters.Key<String>("to")
 /** 表示する月の1日(設定が空なら今月) */
 fun widgetMonth(q: Q): LocalDate = runCatching { LocalDate.parse(q.s.wMonth + "-01") }.getOrNull() ?: LocalDate.now().withDayOfMonth(1)
 
 class MonthNavAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         Repo.init(context)
-        val dir = parameters[KEY_DIR] ?: 0
-        val cur = widgetMonth(Repo.q())
-        val next = if (dir == 0) LocalDate.now().withDayOfMonth(1) else cur.plusMonths(dir.toLong())
-        val thisMonth = LocalDate.now().withDayOfMonth(1)
-        Repo.setSettings(refreshWidgets = false) { it.copy(wMonth = if (next == thisMonth) "" else next.toString().take(7)) }
-        coroutineScope {
-            launch { runCatching { MonthWidget().updateAll(context) } }
-            launch { runCatching { MonthOnlyWidget().updateAll(context) } }
-        }
+        val to = parameters[KEY_TO] ?: ""
+        if (Repo.settings.value.wMonth == to) return   // すでにその月なら何もしない
+        Repo.setSettings(refreshWidgets = false) { it.copy(wMonth = to) }
+        updateTappedFirst(context, glanceId, MonthWidget(), MonthOnlyWidget())
     }
 }
 
 @Composable
 private fun MonthNav(m: LocalDate) {
     val prev = m.minusMonths(1); val next = m.plusMonths(1)
-    val isNow = m == LocalDate.now().withDayOfMonth(1)
+    val thisMonth = LocalDate.now().withDayOfMonth(1)
+    val isNow = m == thisMonth
+    fun key(x: LocalDate) = if (x == thisMonth) "" else x.toString().take(7)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("${prev.monthValue}月◀", style = ts(10, WC.sub, true), modifier = GlanceModifier.padding(horizontal = 4.dp, vertical = 3.dp)
-            .clickable(actionRunCallback<MonthNavAction>(actionParametersOf(KEY_DIR to -1))))
+            .clickable(actionRunCallback<MonthNavAction>(actionParametersOf(KEY_TO to key(prev)))))
         // 今月以外を見ているときは、月の名前をタップで今月に戻る(ピンク表示)。今月ならアプリを開く
         Text("${m.year % 100}年${m.monthValue}月", style = ts(13, if (isNow) WC.ink else WC.rasp, true),
-            modifier = GlanceModifier.padding(horizontal = 2.dp).clickable(if (isNow) openApp else actionRunCallback<MonthNavAction>(actionParametersOf(KEY_DIR to 0))))
+            modifier = GlanceModifier.padding(horizontal = 2.dp).clickable(if (isNow) openApp else actionRunCallback<MonthNavAction>(actionParametersOf(KEY_TO to ""))))
         Text("▶${next.monthValue}月", style = ts(10, WC.sub, true), modifier = GlanceModifier.padding(horizontal = 4.dp, vertical = 3.dp)
-            .clickable(actionRunCallback<MonthNavAction>(actionParametersOf(KEY_DIR to 1))))
+            .clickable(actionRunCallback<MonthNavAction>(actionParametersOf(KEY_TO to key(next)))))
     }
 }
 
